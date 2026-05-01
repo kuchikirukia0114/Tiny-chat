@@ -1,0 +1,10 @@
+{
+  "display_name": "Tiny Chat",
+  "loading_order": 100,
+  "js": "index.js",
+  "css": "css/tiny-chat.css",
+  "author": "Limerence",
+  "version": "0.1.0",
+  "description": "轻量魔法对话窗口，基于巫师棋聊天面板独立提取。",
+  "auto_update": false
+}

@@ -1,0 +1,2477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tiny Chat</title>
+  <link rel="stylesheet" href="css/tiny-chat.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; background: transparent; }
+    body { display: flex; align-items: center; justify-content: center; padding: 0; background: transparent; overflow: hidden; }
+  </style>
+</head>
+<body>
+  <div id="tiny-chat-root"></div>
+
+  <script>
+    // 内联 TinyChat 类（独立预览用，插件模式走 index.js + ES Module）
+    class TinyChat {
+      constructor(rootEl, options = {}) {
+        this.root = typeof rootEl === 'string' ? document.querySelector(rootEl) : rootEl;
+        this.opponentName = options.opponentName || '赫敏·格兰杰';
+        this.playerName = options.playerName || '你';
+        this.onPlayerSend = options.onPlayerSend || null;
+        this.messagesEl = null;
+        this.speechInput = null;
+        this.sendBtn = null;
+        this._init();
+      }
+
+      _init() {
+        this.root.innerHTML = `
+          <div class="chat-panel">
+            <div class="paper-panel">
+              <div class="chat-title">Owl Post</div>
+              <div class="messages"></div>
+              <div class="controls">
+                <div class="pencil-row">
+                  <div class="pencil-input-slot">
+                    <div class="pencil-input" contenteditable="true" spellcheck="false" data-placeholder="提起羽毛笔…"></div>
+                  </div>
+                  <button class="stamp-btn" type="button" aria-label="发送"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-mask">
+            <div class="modal-card" role="dialog" aria-modal="true" aria-label="Floo Network">
+              <div class="modal-head">
+                <div class="modal-title">Floo Network</div>
+                <button class="modal-close" type="button" aria-label="关闭">关闭</button>
+              </div>
+              <button class="modal-page-arrow modal-page-arrow--prev" type="button" aria-label="上一页"></button>
+              <button class="modal-page-arrow modal-page-arrow--next" type="button" aria-label="下一页"></button>
+              <div class="network-panels">
+                <!-- === Page 1: API Config === -->
+                <section class="network-panel network-panel--left network-page network-page--1">
+                  <div class="api-top-bar">
+                    <label class="api-label api-title-label">API配置</label>
+                  </div>
+                  <div class="api-panel api-panel--page1-left">
+                    <div class="api-grid">
+                      <div class="field url">
+                        <label class="api-label">API URL</label>
+                        <input class="api-input" placeholder="https://api.openai.com/v1" />
+                      </div>
+                      <div class="field key">
+                        <label class="api-label">API Key</label>
+                        <input class="api-input" type="password" placeholder="sk-..." />
+                      </div>
+                      <div class="field model">
+                        <label class="api-label">Models</label>
+                        <input class="api-input" placeholder="gpt-4o-mini" />
+                        <div class="model-list" hidden></div>
+                      </div>
+                      <div class="field stream">
+                        <label class="api-label">Stream</label>
+                        <input class="api-input" placeholder="" readonly />
+                        <div class="stream-list" hidden>
+                          <button class="stream-item" type="button" data-value="realtime">实时传输</button>
+                          <button class="stream-item" type="button" data-value="complete">完整传输</button>
+                        </div>
+                      </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section class="network-panel network-panel--right network-page network-page--1">
+                  <div class="api-panel">
+                    <div class="api-grid">
+                      <div class="thinking-chain-section">
+                        <label class="api-label thinking-chain-label">思维链标签</label>
+                        <div class="field thinking-chain-tag-field">
+                          <input class="api-input thinking-chain-tag-input" placeholder="思维链XML标签" spellcheck="false" />
+                        </div>
+                      </div>
+                      <div class="field names field-row">
+                        <div class="field-half field-half--left char-name-field">
+                          <label class="api-label">Char name</label>
+                          <input class="api-input char-name-input" placeholder="角色名字" spellcheck="false" />
+                        </div>
+                        <div class="field-half field-half--right user-name-field">
+                          <label class="api-label">User name</label>
+                          <input class="api-input user-name-input" placeholder="我的名字" spellcheck="false" />
+                        </div>
+                      </div>
+                      <div class="field deepseek field-row">
+                        <div class="field-half field-half--left">
+                          <label class="api-label">DeepSeek</label>
+                          <input class="api-input deepseek-thinking-input" placeholder="" readonly />
+                          <div class="deepseek-list" hidden>
+                            <button class="deepseek-item" type="button" data-value="enabled">启用</button>
+                            <button class="deepseek-item" type="button" data-value="disabled">禁用</button>
+                          </div>
+                        </div>
+                        <div class="field-half field-half--right">
+                          <label class="api-label deepseek-effort-label">Reasoning effort</label>
+                          <input class="api-input deepseek-effort-input" placeholder="" readonly />
+                          <div class="deepseek-effort-list" hidden>
+                            <button class="deepseek-effort-item" type="button" data-value="high">high</button>
+                            <button class="deepseek-effort-item" type="button" data-value="max">max</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <!-- === Page 2: Preset === -->
+                <section class="network-panel network-panel--left network-page network-page--2" style="display:none">
+                  <div class="preset-panel">
+                    <div class="preset-top-bar">
+                      <label class="api-label preset-title-label">预设</label>
+                      <button class="preset-add-btn" type="button">+</button>
+                    </div>
+                    <div class="preset-block-list"></div>
+                    <div class="preset-actions">
+                      <button class="preset-action-btn" type="button" data-action="import">导入</button>
+                      <button class="preset-action-btn" type="button" data-action="export">导出</button>
+                      <button class="preset-action-btn" type="button" data-action="preview">预览</button>
+                    </div>
+                  </div>
+                </section>
+                <section class="network-panel network-panel--right network-page network-page--2" style="display:none">
+                  <div class="api-panel preset-editor" hidden>
+                    <div class="preset-editor-toolbar">
+                      <button class="preset-toolbar-btn" type="button" data-action="save">保存</button>
+                      <button class="preset-toolbar-btn" type="button" data-action="back">返回</button>
+                      <button class="preset-toolbar-btn preset-subchat-reset" type="button" hidden>重置</button>
+                    </div>
+                    <div class="api-grid">
+                      <div class="field field-row preset-field-type-role">
+                        <div class="field-half field-half--left preset-field-type">
+                          <label class="api-label">Type</label>
+                          <input class="api-input preset-type-input" placeholder="" readonly />
+                          <div class="preset-type-list" hidden>
+                            <button class="preset-type-item" type="button" data-value="message">消息块</button>
+                            <button class="preset-type-item" type="button" data-value="context">主聊天</button>
+                            <button class="preset-type-item" type="button" data-value="subchat">副聊天</button>
+                            <button class="preset-type-item" type="button" data-value="current_input">当前用户输入</button>
+                            <button class="preset-type-item" type="button" data-value="worldinfo">世界书</button>
+                          </div>
+                        </div>
+                        <div class="field-half field-half--right preset-field-role">
+                          <div class="preset-role-control">
+                            <label class="api-label">Role</label>
+                            <input class="api-input preset-role-input" placeholder="" readonly />
+                            <div class="preset-role-list" hidden>
+                              <button class="preset-role-item" type="button" data-value="system">system</button>
+                              <button class="preset-role-item" type="button" data-value="user">user</button>
+                              <button class="preset-role-item" type="button" data-value="assistant">assistant</button>
+                            </div>
+                          </div>
+                          <div class="preset-subchat-control" hidden>
+                            <div class="preset-subchat-head">
+                              <label class="api-label preset-subchat-range-label">聊天历史发送范围</label>
+                            </div>
+                            <input class="api-input preset-subchat-range-input" type="number" min="0" max="999" step="1" placeholder="空=全发" />
+                          </div>
+                        </div>
+                      </div>
+                      <div class="field preset-field-name">
+                        <label class="api-label">Name</label>
+                        <input class="api-input preset-name-input" placeholder="块名称" />
+                      </div>
+                      <div class="field preset-field-text">
+                        <textarea class="api-input preset-text-input" placeholder="内容"></textarea>
+                        <div class="preset-worldinfo-box" hidden>
+                          <div class="preset-worldinfo-list"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="preset-preview" hidden>
+                    <div class="preset-preview-toolbar">
+                      <button class="preset-toolbar-btn preset-preview-toggle" type="button" data-mode="readable">原始JSON</button>
+                      <button class="preset-toolbar-btn" type="button" data-action="preview-back">返回</button>
+                    </div>
+                    <div class="preset-preview-list"></div>
+                  </div>
+                </section>
+                <!-- === Page 3: Main Chat === -->
+                <section class="network-panel network-panel--left network-page network-page--3" style="display:none">
+                  <div class="mainchat-top-bar">
+                    <label class="api-label mainchat-title-label">主聊天</label>
+                    <button class="preset-action-btn mainchat-refresh-btn" type="button">刷新</button>
+                  </div>
+                  <div class="mainchat-panel">
+                    <div class="api-grid">
+                      <div class="field mainchat-field-ai">
+                        <label class="api-label">最近AI消息范围</label>
+                        <input class="api-input mainchat-ai-n" type="number" min="0" max="99" step="1" placeholder="空=全部，0=不读取" />
+                      </div>
+                      <div class="field mainchat-field-user">
+                        <label class="api-label">最近用户消息范围</label>
+                        <input class="api-input mainchat-user-n" type="number" min="0" max="99" step="1" placeholder="空=全部，0=不发送" />
+                      </div>
+                    </div>
+                    <div class="mainchat-xml-section">
+                      <div class="mainchat-xml-head">
+                        <label class="api-label">XML规则</label>
+                        <button class="preset-action-btn mainchat-add-rule" type="button">+</button>
+                      </div>
+                      <div class="mainchat-xml-rules"></div>
+                    </div>
+                  </div>
+                </section>
+                <section class="network-panel network-panel--right network-page network-page--3" style="display:none">
+                  <div class="mainchat-preview">
+                    <pre class="mainchat-preview-text">点击刷新查看上下文</pre>
+                  </div>
+                </section>
+                <!-- === Page 4: World Book === -->
+                <section class="network-panel network-panel--left network-page network-page--4" style="display:none">
+                  <div class="wb-top-bar">
+                    <label class="api-label wb-title-label">世界书</label>
+                    <button class="preset-action-btn wb-add-btn" type="button">+</button>
+                  </div>
+                  <div class="wb-panel">
+                    <div class="wb-card-list"></div>
+                  </div>
+                </section>
+                <section class="network-panel network-panel--right network-page network-page--4" style="display:none">
+                  <div class="wb-picker" hidden>
+                    <div class="wb-picker-list"></div>
+                  </div>
+                  <div class="wb-triggered-preview" hidden>
+                    <div class="wb-triggered-preview-toolbar">
+                      <button class="preset-toolbar-btn wb-triggered-preview-back" type="button">返回</button>
+                    </div>
+                    <div class="wb-triggered-preview-box">
+                      <pre class="mainchat-preview-text wb-triggered-preview-text">点击预览查看触发结果</pre>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        `;
+        this.messagesEl = this.root.querySelector('.messages');
+        this.speechInput = this.root.querySelector('.pencil-input');
+        this.sendBtn = this.root.querySelector('.stamp-btn');
+        this._pendingDeleteMessageId = '';
+        this.modalMask = this.root.querySelector('.modal-mask');
+        this.modalCloseBtn = this.root.querySelector('.modal-close');
+        this.chatTitle = this.root.querySelector('.chat-title');
+        this.apiUrlInput = this.root.querySelector('.field.url .api-input');
+        this.apiKeyInput = this.root.querySelector('.field.key .api-input');
+        this.apiModelInput = this.root.querySelector('.field.model .api-input');
+        this.modelListEl = this.root.querySelector('.model-list');
+        this.flooChannelLabel = this.root.querySelector('.field.url .api-label');
+        this.flooPowderLabel = this.root.querySelector('.field.key .api-label');
+        this.destinationLabel = this.root.querySelector('.field.model .api-label');
+        this.streamLabel = this.root.querySelector('.field.stream .api-label');
+        this.streamInput = this.root.querySelector('.field.stream .api-input');
+        this.streamListEl = this.root.querySelector('.stream-list');
+        this.deepseekLabel = this.root.querySelector('.field.deepseek .field-half--left .api-label');
+        this.deepseekInput = this.root.querySelector('.deepseek-thinking-input');
+        this.deepseekListEl = this.root.querySelector('.deepseek-list');
+        this.deepseekEffortLabel = this.root.querySelector('.deepseek-effort-label');
+        this.deepseekEffortInput = this.root.querySelector('.deepseek-effort-input');
+        this.deepseekEffortListEl = this.root.querySelector('.deepseek-effort-list');
+        this.thinkingChainLabel = this.root.querySelector('.thinking-chain-label');
+        this.thinkingChainTagInput = this.root.querySelector('.thinking-chain-tag-input');
+        this.charNameInput = this.root.querySelector('.char-name-input');
+        this.userNameInput = this.root.querySelector('.user-name-input');
+
+        // Page navigation
+        this._currentPage = 1;
+        this._prevPageBtn = this.root.querySelector('.modal-page-arrow--prev');
+        this._nextPageBtn = this.root.querySelector('.modal-page-arrow--next');
+        this._allPages = this.root.querySelectorAll('.network-page');
+
+        // Preset refs
+        this._presetBlockList = this.root.querySelector('.preset-block-list');
+        this._presetEditor = this.root.querySelector('.preset-editor');
+        this._presetTypeInput = this.root.querySelector('.preset-field-type .api-input');
+        this._presetTypeList = this.root.querySelector('.preset-type-list');
+        this._presetRoleInput = this.root.querySelector('.preset-role-input');
+        this._presetRoleList = this.root.querySelector('.preset-role-list');
+        this._presetRoleControl = this.root.querySelector('.preset-role-control');
+        this._presetSubchatControl = this.root.querySelector('.preset-subchat-control');
+        this._presetSubchatRangeInput = this.root.querySelector('.preset-subchat-range-input');
+        this._presetSubchatReset = this.root.querySelector('.preset-subchat-reset');
+        this._presetNameInput = this.root.querySelector('.preset-field-name .api-input');
+        this._presetTextInput = this.root.querySelector('.preset-field-text .api-input');
+        this._presetWorldinfoBox = this.root.querySelector('.preset-worldinfo-box');
+        this._presetWorldinfoList = this.root.querySelector('.preset-worldinfo-list');
+        this._presetAddBtn = this.root.querySelector('.preset-add-btn');
+
+        // Preview refs
+        this._presetPreview = this.root.querySelector('.preset-preview');
+        this._presetPreviewList = this.root.querySelector('.preset-preview-list');
+
+        // Main Chat refs
+        this._mainchatAiN = this.root.querySelector('.mainchat-ai-n');
+        this._mainchatUserN = this.root.querySelector('.mainchat-user-n');
+        this._mainchatRulesEl = this.root.querySelector('.mainchat-xml-rules');
+        this._mainchatAddRule = this.root.querySelector('.mainchat-add-rule');
+        this._mainchatRefreshBtn = this.root.querySelector('.mainchat-refresh-btn');
+        this._mainchatPreviewText = this.root.querySelector('.mainchat-preview-text');
+
+        // World Book refs
+        this._wbCardList = this.root.querySelector('.wb-card-list');
+        this._wbAddBtn = this.root.querySelector('.wb-add-btn');
+        this._wbPicker = this.root.querySelector('.wb-picker');
+        this._wbPickerList = this.root.querySelector('.wb-picker-list');
+        this._wbTriggeredPreview = this.root.querySelector('.wb-triggered-preview');
+        this._wbTriggeredPreviewText = this.root.querySelector('.wb-triggered-preview-text');
+        this._wbTriggeredPreviewBack = this.root.querySelector('.wb-triggered-preview-back');
+
+        // Preset state
+        this._presetBlocks = [];
+        this._selectedBlockIndex = -1;
+        this._hoveredPresetBlockId = '';
+
+        // Main Chat state
+        this._mainChatConfig = { contextN: '', userN: '', xmlRules: [] };
+
+        // World Book state
+        this._worldBooks = [];
+
+        // API state
+        this._apiConfig = { url: '', key: '', model: '', models: [], stream: false, streamMode: '', deepseekThinking: '', deepseekEffort: '', thinkingChainEnabled: false, thinkingChainTag: '' };
+        this._cachedModels = [];
+        this._messageSeq = 0;
+        this._chatHistory = [];
+        this._dbReady = this._openDB();
+        this._restoreApiConfig();
+
+        this.sendBtn.addEventListener('click', () => this._onSend());
+        this.speechInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); this._onSend(); }
+        });
+
+        // Owl Post title opens modal
+        this.chatTitle.addEventListener('click', () => this.openModal());
+
+        // Close modal
+        this.modalCloseBtn.addEventListener('click', () => this.closeModal());
+        this.modalMask.addEventListener('click', (e) => {
+          if (e.target === this.modalMask) this.closeModal();
+        });
+
+        // Floo Channel label: normalize URL
+        this.flooChannelLabel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const before = this.apiUrlInput.value.trim();
+          const normalized = before.replace(/\/+$/, '');
+          if (!normalized) return;
+          if (normalized !== before) this.apiUrlInput.value = normalized;
+          this._setLabelState(this.flooChannelLabel, 'emerald');
+          this._saveApiConfig();
+        });
+        this.apiUrlInput.addEventListener('input', () => {
+          this._setLabelState(this.flooChannelLabel, null);
+          this._setLabelState(this.destinationLabel, null);
+          this._cachedModels = [];
+          this._hideModelList();
+          this._saveApiConfig();
+        });
+
+        // Floo Powder label: toggle password visibility
+        this.flooPowderLabel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.flooPowderLabel.classList.contains('is-emerald')) {
+            this._setLabelState(this.flooPowderLabel, null);
+            this.apiKeyInput.type = 'password';
+          } else {
+            this.apiKeyInput.type = this.apiKeyInput.type === 'password' ? 'text' : 'password';
+            this._setLabelState(this.flooPowderLabel, 'emerald');
+          }
+        });
+        this.apiKeyInput.addEventListener('input', () => {
+          this._setLabelState(this.flooPowderLabel, null);
+          this._setLabelState(this.destinationLabel, null);
+          this._cachedModels = [];
+          this._hideModelList();
+          this._saveApiConfig();
+        });
+
+        this.thinkingChainTagInput.addEventListener('input', () => {
+          this._apiConfig.thinkingChainTag = this._normalizeThinkingTagName(this.thinkingChainTagInput.value);
+          this._apiConfig.thinkingChainEnabled = !!this._apiConfig.thinkingChainTag;
+          this._saveApiConfig();
+        });
+        this.charNameInput.addEventListener('input', () => {
+          this.opponentName = String(this.charNameInput.value || '').trim() || '赫敏·格兰杰';
+          this._saveApiConfig();
+        });
+        this.userNameInput.addEventListener('input', () => {
+          this.playerName = String(this.userNameInput.value || '').trim() || '你';
+          this._saveApiConfig();
+        });
+
+        // Destination label: connect & toggle model list
+        this.destinationLabel.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          // Already connected (green): toggle model list
+          if (this.destinationLabel.classList.contains('is-emerald')) {
+            if (this.modelListEl.hidden) this._showModelList();
+            else this._hideModelList();
+            return;
+          }
+
+          // Not connected: attempt to fetch models
+          this._hideModelList();
+          this._cachedModels = [];
+          this._setLabelState(this.destinationLabel, null);
+
+          const url = this.apiUrlInput.value.trim().replace(/\/+$/, '');
+          const key = this.apiKeyInput.value.trim();
+          if (!url || !key) {
+            this._setLabelState(this.destinationLabel, 'flame');
+            return;
+          }
+
+          try {
+            const base = url.replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+            const resp = await fetch(`${base}/models`, {
+              headers: { Authorization: `Bearer ${key}` },
+            });
+            const raw = await resp.text();
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${raw.slice(0, 200)}`);
+            const data = JSON.parse(raw);
+            const ids = Array.isArray(data?.data)
+              ? data.data.map(m => String(m?.id || '').trim()).filter(Boolean)
+              : [];
+            if (!ids.length) { this._setLabelState(this.destinationLabel, 'flame'); return; }
+
+            this._cachedModels = ids;
+            const prevStream = this._apiConfig.stream;
+            const prevStreamMode = this._apiConfig.streamMode;
+            const prevThinkingChainEnabled = this._apiConfig.thinkingChainEnabled;
+            const prevThinkingChainTag = this._apiConfig.thinkingChainTag;
+            this._apiConfig = {
+              ...this._apiConfig,
+              url,
+              key,
+              model: this.apiModelInput.value.trim() || ids[0],
+              models: ids,
+              stream: prevStream,
+              streamMode: prevStreamMode,
+              thinkingChainEnabled: prevThinkingChainEnabled,
+              thinkingChainTag: prevThinkingChainTag,
+            };
+            if (!this.apiModelInput.value.trim()) this.apiModelInput.value = ids[0];
+            this._renderModelList(ids);
+            this._setLabelState(this.destinationLabel, 'emerald');
+            this._hideModelList();
+            this._saveApiConfig();
+          } catch (err) {
+            console.warn('[TinyChat] Fetch models failed', err);
+            this._setLabelState(this.destinationLabel, 'flame');
+          }
+        });
+
+        // Manual model input save
+        this.apiModelInput.addEventListener('input', () => {
+          this._apiConfig.model = this.apiModelInput.value.trim();
+          this._saveApiConfig();
+        });
+
+        // Stream label: toggle stream on/off; input click toggles dropdown
+        this.streamLabel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isOn = this.streamLabel.classList.contains('is-emerald');
+          if (isOn) {
+            this._setLabelState(this.streamLabel, null);
+            this._apiConfig.stream = false;
+            this._apiConfig.streamMode = '';
+            this.streamInput.value = '';
+            this._hideStreamList();
+          } else {
+            this._setLabelState(this.streamLabel, 'emerald');
+            this._apiConfig.stream = true;
+            if (!this._apiConfig.streamMode) {
+              this._apiConfig.streamMode = 'realtime';
+              this.streamInput.value = '实时传输';
+            }
+          }
+          this._saveApiConfig();
+        });
+        this.streamInput.addEventListener('click', () => {
+          if (this.streamListEl.hidden) this._showStreamList();
+          else this._hideStreamList();
+        });
+        this.streamListEl.querySelectorAll('.stream-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const v = btn.dataset.value;
+            this._apiConfig.stream = true;
+            this._apiConfig.streamMode = v;
+            this.streamInput.value = btn.textContent;
+            this._setLabelState(this.streamLabel, 'emerald');
+            this._hideStreamList();
+            this._saveApiConfig();
+          });
+        });
+
+        // DeepSeek label: toggle thinking on/off; input click toggles dropdown
+        this.deepseekLabel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const isOn = this.deepseekLabel.classList.contains('is-emerald');
+          if (isOn) {
+            this._setLabelState(this.deepseekLabel, null);
+            this._apiConfig.deepseekThinking = '';
+            this._apiConfig.deepseekEffort = '';
+            this.deepseekInput.value = '';
+            this.deepseekEffortInput.value = '';
+            this._setLabelState(this.deepseekEffortLabel, null);
+            this._hideDeepseekList();
+            this._hideDeepseekEffortList();
+          } else {
+            this._setLabelState(this.deepseekLabel, 'emerald');
+            this._apiConfig.deepseekThinking = 'enabled';
+            this.deepseekInput.value = '启用';
+            if (!this._apiConfig.deepseekEffort) {
+              this._apiConfig.deepseekEffort = 'high';
+              this.deepseekEffortInput.value = 'high';
+              this._setLabelState(this.deepseekEffortLabel, 'emerald');
+            }
+          }
+          this._saveApiConfig();
+        });
+        this.deepseekInput.addEventListener('click', () => {
+          if (this.deepseekListEl.hidden) this._showDeepseekList();
+          else this._hideDeepseekList();
+        });
+        this.deepseekListEl.querySelectorAll('.deepseek-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const v = btn.dataset.value;
+            this._apiConfig.deepseekThinking = v;
+            this.deepseekInput.value = v === 'enabled' ? '启用' : '禁用';
+            this._setLabelState(this.deepseekLabel, 'emerald');
+            this._hideDeepseekList();
+            if (v === 'disabled') {
+              this._apiConfig.deepseekEffort = '';
+              this.deepseekEffortInput.value = '';
+              this._setLabelState(this.deepseekEffortLabel, null);
+            }
+            this._saveApiConfig();
+          });
+        });
+
+        // DeepSeek effort: right side
+        this.deepseekEffortLabel.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          // Only toggle if thinking is enabled
+          if (this._apiConfig.deepseekThinking !== 'enabled') return;
+          if (this.deepseekEffortLabel.classList.contains('is-emerald')) {
+            if (this.deepseekEffortListEl.hidden) this._showDeepseekEffortList();
+            else this._hideDeepseekEffortList();
+          }
+        });
+        this.deepseekEffortInput.addEventListener('click', () => {
+          if (this._apiConfig.deepseekThinking !== 'enabled') return;
+          if (this.deepseekEffortListEl.hidden) this._showDeepseekEffortList();
+          else this._hideDeepseekEffortList();
+        });
+        this.deepseekEffortListEl.querySelectorAll('.deepseek-effort-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const v = btn.dataset.value;
+            this._apiConfig.deepseekEffort = v;
+            this.deepseekEffortInput.value = v;
+            this._setLabelState(this.deepseekEffortLabel, 'emerald');
+            this._hideDeepseekEffortList();
+            this._saveApiConfig();
+          });
+        });
+
+        // Page navigation
+        this._prevPageBtn.addEventListener('click', () => this._goPage(this._currentPage - 1));
+        this._nextPageBtn.addEventListener('click', () => this._goPage(this._currentPage + 1));
+        this._updatePageArrows();
+
+        // Preset: add block
+        this._presetAddBtn.addEventListener('click', () => this._addPresetBlock());
+
+        // Preset: type/role label + input clicks (toggle)
+        const typeLabel = this.root.querySelector('.preset-field-type .api-label');
+        const roleLabel = this.root.querySelector('.preset-field-role .api-label');
+
+        const toggleType = () => {
+          const wasOpen = !this._presetTypeList.hidden;
+          this._hideAllPresetDropdowns();
+          if (!wasOpen) {
+            this._presetTypeList.hidden = false;
+            this._toggleFieldsBelow('preset-field-type-role', true);
+          }
+        };
+        const toggleRole = () => {
+          const wasOpen = !this._presetRoleList.hidden;
+          this._hideAllPresetDropdowns();
+          if (!wasOpen) {
+            this._presetRoleList.hidden = false;
+            this._toggleFieldsBelow('preset-field-type-role', true);
+          }
+        };
+
+        this._presetTypeInput.addEventListener('click', toggleType);
+        typeLabel.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleType(); });
+        this._presetTypeList.querySelectorAll('.preset-type-item').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            this._presetTypeInput.value = btn.textContent;
+            if (this._selectedBlockIndex >= 0 && this._blockDraft) {
+              this._blockDraft.type = btn.dataset.value;
+            }
+            this._presetTypeList.hidden = true;
+            this._toggleFieldsBelow('preset-field-type-role', false);
+            await this._syncPresetEditorPreview();
+          });
+        });
+        this._presetRoleInput.addEventListener('click', toggleRole);
+        roleLabel.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleRole(); });
+        this._presetRoleList.querySelectorAll('.preset-role-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this._presetRoleInput.value = btn.textContent;
+            if (this._selectedBlockIndex >= 0 && this._blockDraft) {
+              this._blockDraft.role = btn.dataset.value;
+            }
+            this._presetRoleList.hidden = true;
+            this._toggleFieldsBelow('preset-field-type-role', false);
+          });
+        });
+        this._presetNameInput.addEventListener('input', () => {
+          if (this._selectedBlockIndex >= 0 && this._blockDraft && this._blockDraft.type === 'message') {
+            this._blockDraft.name = this._presetNameInput.value;
+          }
+        });
+        this._presetTextInput.addEventListener('input', () => {
+          if (this._selectedBlockIndex >= 0 && this._blockDraft && this._blockDraft.type === 'message') {
+            this._blockDraft.text = this._presetTextInput.value;
+          }
+        });
+        this._presetSubchatRangeInput.addEventListener('input', () => {
+          if (this._selectedBlockIndex >= 0 && this._blockDraft && this._blockDraft.type === 'subchat') {
+            this._blockDraft.subChatRangeN = this._presetSubchatRangeInput.value;
+            this._presetTextInput.value = this._buildSecondaryChatPreviewText(this._blockDraft);
+          }
+        });
+        this._presetSubchatReset.addEventListener('click', () => {
+          if (this._selectedBlockIndex >= 0 && this._blockDraft && this._blockDraft.type === 'subchat') {
+            this._blockDraft.subChatRangeN = '';
+            this._presetSubchatRangeInput.value = '';
+            this._presetTextInput.value = this._buildSecondaryChatPreviewText(this._blockDraft);
+          }
+        });
+
+        // Preset action buttons: import, export, preview
+        this.root.querySelectorAll('.preset-action-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const action = btn.dataset.action;
+            if (action === 'import') this._importPreset();
+            else if (action === 'export') this._exportPreset();
+            else if (action === 'preview') this._showPresetPreview();
+          });
+        });
+
+        // Preset editor toolbar buttons: save, back
+        this.root.querySelectorAll('.preset-editor-toolbar .preset-toolbar-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const action = btn.dataset.action;
+            if (action === 'save') this._saveBlockDraft();
+            else if (action === 'back') this._discardBlockDraft();
+          });
+        });
+
+        // Preset preview toolbar buttons: toggle, back
+        this.root.querySelector('.preset-preview-toggle').addEventListener('click', () => this._togglePreviewMode());
+        this.root.querySelector('[data-action="preview-back"]').addEventListener('click', () => this._clearRightPage());
+
+        // Restore preset blocks
+        this._restorePresetBlocks();
+
+        // Main Chat: bind events
+        this._mainchatAiN.addEventListener('input', () => this._saveMainChatConfig());
+        this._mainchatUserN.addEventListener('input', () => this._saveMainChatConfig());
+        this._mainchatAddRule.addEventListener('click', () => this._addXmlRule());
+        this._mainchatRefreshBtn.addEventListener('click', () => this._refreshMainChatPreview());
+        this._restoreMainChatConfig();
+
+        // World Book: bind events
+        this._wbAddBtn.addEventListener('click', () => this._openWbPicker());
+        this._wbTriggeredPreviewBack?.addEventListener('click', () => this._hideWbTriggeredPreview());
+        document.addEventListener('visibilitychange', () => {
+          if (document.hidden) return;
+          this._restorePresetEditorState();
+        });
+        window.addEventListener('focus', () => this._restorePresetEditorState());
+        this._restoreWorldBooks();
+      }
+
+      openModal() {
+        this.modalMask.classList.add('open');
+        try {
+          window.parent?.postMessage?.({ type: 'tinychat.modalState', open: true }, '*');
+        } catch (e) {}
+      }
+
+      closeModal() {
+        this.modalMask.classList.remove('open');
+        try {
+          window.parent?.postMessage?.({ type: 'tinychat.modalState', open: false }, '*');
+        } catch (e) {}
+      }
+
+      _normalizeThinkingTagName(value) {
+        return String(value == null ? '' : value)
+          .trim()
+          .replace(/^<\/?\s*/, '')
+          .replace(/\s*\/?>$/g, '')
+          .split(/\s+/)[0]
+          .replace(/[^A-Za-z0-9_.:-]/g, '')
+          .slice(0, 48);
+      }
+
+      _getThinkingTagName() {
+        if (!this._apiConfig.thinkingChainEnabled) return '';
+        return this._normalizeThinkingTagName(this._apiConfig.thinkingChainTag || this.thinkingChainTagInput?.value || '');
+      }
+
+      _escapeRegExp(value) {
+        return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+
+      _createThinkingFoldBox(tagName, content) {
+        const box = document.createElement('button');
+        box.type = 'button';
+        box.className = 'thinking-fold-box';
+        box.dataset.expanded = 'false';
+        const collapsedText = 'Thought Content';
+        const expandedText = `<${tagName}>\n${String(content || '').trim()}\n</${tagName}>`;
+        const syncText = () => {
+          box.textContent = box.dataset.expanded === 'true' ? expandedText : collapsedText;
+        };
+        box.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          box.dataset.expanded = box.dataset.expanded === 'true' ? 'false' : 'true';
+          box.classList.toggle('is-expanded', box.dataset.expanded === 'true');
+          syncText();
+        });
+        syncText();
+        return box;
+      }
+
+      _appendMessageText(container, text) {
+        const value = String(text || '');
+        const parts = value.split('\n');
+        parts.forEach((part, index) => {
+          if (index > 0) container.appendChild(document.createElement('br'));
+          if (part) container.appendChild(document.createTextNode(part));
+        });
+      }
+
+      _appendMessageContent(container, text, { foldThinking = false } = {}) {
+        const tagName = foldThinking ? this._getThinkingTagName() : '';
+        const rawText = String(text == null ? '' : text);
+        if (!tagName) {
+          this._appendMessageText(container, rawText);
+          return;
+        }
+
+        const regex = new RegExp(`<${this._escapeRegExp(tagName)}\\b[^>]*>([\\s\\S]*?)<\\/${this._escapeRegExp(tagName)}>`, 'gi');
+        let lastIndex = 0;
+        let matched = false;
+        let match = null;
+        while ((match = regex.exec(rawText)) !== null) {
+          matched = true;
+          this._appendMessageText(container, rawText.slice(lastIndex, match.index));
+          container.appendChild(this._createThinkingFoldBox(tagName, match[1] || ''));
+          lastIndex = regex.lastIndex;
+        }
+        if (!matched) {
+          this._appendMessageText(container, rawText);
+          return;
+        }
+        this._appendMessageText(container, rawText.slice(lastIndex));
+      }
+
+      _nextMessageId() {
+        this._messageSeq += 1;
+        return `msg_${Date.now()}_${this._messageSeq}`;
+      }
+
+      _deleteChatMessage(messageId) {
+        const targetId = String(messageId || '').trim();
+        if (!targetId) return;
+        this._chatHistory = this._chatHistory.filter(message => String(message?.id || '').trim() !== targetId);
+        this.messagesEl.querySelector(`.msg-row[data-message-id="${this._esc(targetId)}"]`)?.remove();
+        this._pendingDeleteMessageId = '';
+      }
+
+      addMessage(type, who, text, meta = {}) {
+        const messageId = String(meta?.id || '').trim() || this._nextMessageId();
+        const row = document.createElement('div');
+        row.className = `msg-row ${type}-row`;
+        row.dataset.messageId = messageId;
+        const div = document.createElement('div');
+        div.className = `msg ${type}`;
+        const whoSpan = document.createElement('button');
+        whoSpan.type = 'button';
+        whoSpan.className = 'who';
+        whoSpan.textContent = who;
+        whoSpan.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const activeId = this._pendingDeleteMessageId === messageId ? '' : messageId;
+          this._pendingDeleteMessageId = activeId;
+          this.messagesEl.querySelectorAll('.msg-row').forEach(item => {
+            item.classList.toggle('delete-armed', item.dataset.messageId === activeId);
+          });
+        });
+        div.appendChild(whoSpan);
+        this._appendMessageContent(div, text, { foldThinking: type === 'ai' });
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'msg-delete-btn';
+        deleteBtn.setAttribute('aria-label', '删除消息');
+        deleteBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this._deleteChatMessage(messageId);
+        });
+
+        if (type === 'player') {
+          div.appendChild(deleteBtn);
+        } else if (type === 'ai') {
+          div.insertBefore(deleteBtn, div.firstChild);
+        }
+
+        row.appendChild(div);
+        this.messagesEl.appendChild(row);
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+        return messageId;
+      }
+
+      _restoreChatMessages() {
+        this.messagesEl.innerHTML = '';
+        this._pendingDeleteMessageId = '';
+        const history = Array.isArray(this._chatHistory) ? this._chatHistory : [];
+        history.forEach(message => {
+          const role = String(message?.role || '').trim().toLowerCase();
+          const content = String(message?.content || '');
+          const id = String(message?.id || '').trim() || this._nextMessageId();
+          if (role === 'user') {
+            this.addMessage('player', this.playerName, content, { id });
+          } else if (role === 'assistant') {
+            this.addMessage('ai', this.opponentName, content, { id });
+          } else if (role === 'system') {
+            this.addMessage('system', 'System', content, { id });
+          }
+        });
+      }
+
+      addPencilLine(side = 'right', tight = false) {
+        const row = document.createElement('div');
+        row.className = `msg-row system-row ${side === 'left' ? 'left' : 'right'}${tight ? ' tight' : ''}`;
+        const div = document.createElement('div');
+        div.className = `msg system pencil-sep ${side === 'left' ? 'pencil-sep-left' : 'pencil-sep-right'}`;
+        row.appendChild(div);
+        this.messagesEl.appendChild(row);
+        this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+      }
+
+      async _onSend() {
+        const text = (this.speechInput.innerText || '').replace(/\u00A0/g, ' ').replace(/[\r\n]+/g, ' ').trim();
+        if (!text) return;
+        const userMessageId = this._nextMessageId();
+        this.addMessage('player', this.playerName, text, { id: userMessageId });
+        this.speechInput.textContent = '';
+        this.sendBtn.classList.add('sending');
+        this.sendBtn.disabled = true;
+
+        const requestMessages = await this._buildRequestMessages(text);
+        this._chatHistory.push({ id: userMessageId, role: 'user', content: text });
+
+        try {
+          const { url, key, model, stream, streamMode, deepseekThinking, deepseekEffort } = this._apiConfig;
+
+          // If API not configured, use callback fallback
+          if (!url || !key || !model) {
+            if (this.onPlayerSend) {
+              const replies = await this.onPlayerSend(text);
+              const lines = Array.isArray(replies) ? replies : (replies ? [replies] : []);
+              lines.forEach(line => {
+                const aiMessageId = this._nextMessageId();
+                this.addMessage('ai', this.opponentName, line, { id: aiMessageId });
+                this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: line });
+              });
+            }
+          } else {
+            // Real API call
+            const base = url.replace(/\/chat\/completions$/i, '').replace(/\/+$/, '');
+            const endpoint = `${base}/chat/completions`;
+            const useStream = stream && streamMode === 'realtime';
+
+            const body = {
+              model,
+              messages: requestMessages,
+              stream: useStream,
+            };
+
+            // DeepSeek thinking params
+            if (deepseekThinking === 'enabled') {
+              body.thinking = { type: 'enabled' };
+              body.reasoning_effort = deepseekEffort || 'high';
+            } else if (deepseekThinking === 'disabled') {
+              body.thinking = { type: 'disabled' };
+            }
+
+            const resp = await fetch(endpoint, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${key}`,
+              },
+              body: JSON.stringify(body),
+            });
+
+            if (!resp.ok) {
+              const err = await resp.text().catch(() => '');
+              throw new Error(`API ${resp.status}: ${err.slice(0, 200)}`);
+            }
+
+            if (useStream) {
+              // SSE streaming
+              const reader = resp.body.getReader();
+              const decoder = new TextDecoder();
+              let buffer = '';
+              let fullText = '';
+              // Create a live message element
+              const aiMessageId = this._nextMessageId();
+              const row = document.createElement('div');
+              row.className = 'msg-row ai-row';
+              row.dataset.messageId = aiMessageId;
+              const div = document.createElement('div');
+              div.className = 'msg ai';
+              const deleteBtn = document.createElement('button');
+              deleteBtn.type = 'button';
+              deleteBtn.className = 'msg-delete-btn';
+              deleteBtn.setAttribute('aria-label', '删除消息');
+              deleteBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                this._deleteChatMessage(aiMessageId);
+              });
+              const whoBtn = document.createElement('button');
+              whoBtn.type = 'button';
+              whoBtn.className = 'who';
+              whoBtn.textContent = this.opponentName;
+              whoBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const activeId = this._pendingDeleteMessageId === aiMessageId ? '' : aiMessageId;
+                this._pendingDeleteMessageId = activeId;
+                this.messagesEl.querySelectorAll('.msg-row').forEach(item => {
+                  item.classList.toggle('delete-armed', item.dataset.messageId === activeId);
+                });
+              });
+              const contentSpan = document.createElement('span');
+              div.appendChild(deleteBtn);
+              div.appendChild(whoBtn);
+              div.appendChild(contentSpan);
+              row.appendChild(div);
+              this.messagesEl.appendChild(row);
+
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                  if (!line.startsWith('data: ')) continue;
+                  const payload = line.slice(6).trim();
+                  if (payload === '[DONE]') break;
+                  try {
+                    const chunk = JSON.parse(payload);
+                    const delta = chunk.choices?.[0]?.delta?.content || '';
+                    fullText += delta;
+                    contentSpan.textContent = fullText;
+                    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+                  } catch (_) {}
+                }
+              }
+              contentSpan.replaceChildren();
+              this._appendMessageContent(contentSpan, fullText, { foldThinking: true });
+              this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: fullText });
+            } else {
+              // Non-stream or complete mode
+              const data = await resp.json();
+              const reply = data.choices?.[0]?.message?.content || '';
+              const aiMessageId = this._nextMessageId();
+              this.addMessage('ai', this.opponentName, reply, { id: aiMessageId });
+              this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: reply });
+            }
+          }
+        } catch (err) {
+          console.error('[TinyChat] Send failed', err);
+          this.addMessage('ai', 'System', `✘ ${err.message}`);
+        } finally {
+          this.sendBtn.classList.remove('sending');
+          this.sendBtn.disabled = false;
+        }
+        this.speechInput.focus();
+      }
+
+      _esc(s) {
+        return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#39;");
+      }
+
+      // --- API Connection ---
+
+      _setLabelState(labelEl, state) {
+        labelEl.classList.remove('is-emerald', 'is-flame');
+        if (state === 'emerald') labelEl.classList.add('is-emerald');
+        if (state === 'flame') labelEl.classList.add('is-flame');
+      }
+
+      _renderModelList(models) {
+        this.modelListEl.innerHTML = models.map(m =>
+          `<button class="model-item" type="button">${this._esc(m)}</button>`
+        ).join('');
+        this.modelListEl.querySelectorAll('.model-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this.apiModelInput.value = btn.textContent;
+            this._apiConfig.model = btn.textContent;
+            this._hideModelList();
+            this._saveApiConfig();
+          });
+        });
+      }
+
+      _showModelList() {
+        if (this._cachedModels.length) this.modelListEl.hidden = false;
+      }
+
+      _hideModelList() {
+        this.modelListEl.hidden = true;
+      }
+
+      _showStreamList() {
+        this.streamListEl.hidden = false;
+      }
+
+      _hideStreamList() {
+        this.streamListEl.hidden = true;
+      }
+
+      _showDeepseekList() {
+        this.deepseekListEl.hidden = false;
+      }
+
+      _hideDeepseekList() {
+        this.deepseekListEl.hidden = true;
+      }
+
+      _showDeepseekEffortList() {
+        this.deepseekEffortListEl.hidden = false;
+      }
+
+      _hideDeepseekEffortList() {
+        this.deepseekEffortListEl.hidden = true;
+      }
+
+      getApiConfig() {
+        return { ...this._apiConfig };
+      }
+
+      // --- Page Navigation ---
+
+      _goPage(n) {
+        const maxPage = 4;
+        if (n < 1 || n > maxPage) return;
+        this._currentPage = n;
+        this._allPages.forEach(el => {
+          const pageNum = el.classList.contains('network-page--1') ? 1
+            : el.classList.contains('network-page--2') ? 2
+            : el.classList.contains('network-page--3') ? 3 : 4;
+          el.style.display = pageNum === n ? '' : 'none';
+        });
+        this._updatePageArrows();
+      }
+
+      _updatePageArrows() {
+        this._prevPageBtn.disabled = this._currentPage <= 1;
+        this._nextPageBtn.disabled = this._currentPage >= 4;
+      }
+
+      _hideAllPresetDropdowns() {
+        this._presetTypeList.hidden = true;
+        this._presetRoleList.hidden = true;
+        this._toggleFieldsBelow('preset-field-type-role', false);
+      }
+
+      _restorePresetEditorState() {
+        if (this._currentPage !== 2) return;
+        if (!this._blockDraft || this._selectedBlockIndex < 0) return;
+        if (this._presetPreview && !this._presetPreview.hidden) return;
+        if (this._presetEditor) this._presetEditor.hidden = false;
+        this._syncPresetEditorPreview();
+      }
+
+      _toggleFieldsBelow(fieldClass, hide) {
+        const field = this.root.querySelector(`.${fieldClass}`);
+        if (!field) return;
+        let sibling = field.nextElementSibling;
+        while (sibling) {
+          sibling.style.display = hide ? 'none' : '';
+          sibling = sibling.nextElementSibling;
+        }
+      }
+
+      // --- Preset ---
+
+      _addPresetBlock() {
+        this._presetBlocks.push({ type: 'message', role: 'user', name: '', text: '' });
+        this._savePresetBlocks();
+        this._renderPresetBlockList();
+        this._selectBlock(this._presetBlocks.length - 1);
+      }
+
+      _ensurePresetBlockIds() {
+        let changed = false;
+        this._presetBlocks = this._presetBlocks.map((block, index) => {
+          const id = String(block?.id || '').trim();
+          if (id) return block;
+          changed = true;
+          return {
+            ...block,
+            id: `preset_block_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 8)}`,
+          };
+        });
+        if (changed) {
+          this._savePresetBlocks();
+        }
+      }
+
+      _pulsePresetAnchorItem(blockId) {
+        if (!blockId || !this._presetBlockList) return;
+        const targetEl = this._presetBlockList.querySelector(`.preset-block-item[data-block-id="${blockId}"]`);
+        if (!targetEl) return;
+        targetEl.classList.remove('preset-block--anchor-pulse');
+        void targetEl.offsetWidth;
+        targetEl.classList.add('preset-block--anchor-pulse');
+        window.setTimeout(() => {
+          targetEl.classList.remove('preset-block--anchor-pulse');
+        }, 220);
+      }
+
+      async _selectBlock(index) {
+        this._selectedBlockIndex = index;
+        const block = this._presetBlocks[index];
+        if (!block) {
+          this._presetEditor.hidden = true;
+          return;
+        }
+        // Store draft copy
+        this._blockDraft = {
+          ...block,
+          worldBook: block.worldBook ? { ...block.worldBook } : undefined,
+        };
+        this._presetEditor.hidden = false;
+        this._presetPreview.hidden = true;
+        const typeLabels = { message: '消息块', context: '主聊天', subchat: '副聊天', current_input: '当前用户输入', worldinfo: '世界书' };
+        this._presetTypeInput.value = typeLabels[block.type] || block.type;
+        this._presetRoleInput.value = block.role || 'user';
+        this._presetNameInput.value = block.name || '';
+        await this._syncPresetEditorPreview();
+        this._renderPresetBlockList();
+      }
+
+      _movePresetBlockKeepingHoverAnchor(index, dir, anchorEvent = null) {
+        this._ensurePresetBlockIds();
+        const idx = Number(index);
+        const step = Number(dir);
+        const target = idx + step;
+        if (!Number.isFinite(idx) || !Number.isFinite(step) || target < 0 || target >= this._presetBlocks.length) {
+          return;
+        }
+
+        const listEl = this._presetBlockList;
+        const hoveredBlockId = String(this._hoveredPresetBlockId || '').trim();
+        const anchorItem = hoveredBlockId
+          ? listEl?.querySelector(`.preset-block-item[data-block-id="${hoveredBlockId}"]`)
+          : (anchorEvent?.currentTarget?.closest?.('.preset-block-item') || null);
+        const anchorBlockId = hoveredBlockId || String(anchorItem?.dataset?.blockId || '').trim();
+        const anchorRectBefore = anchorItem?.getBoundingClientRect?.() || null;
+        const listRectBefore = listEl?.getBoundingClientRect?.() || null;
+        const anchorTopBefore = (anchorRectBefore && listRectBefore)
+          ? (anchorRectBefore.top - listRectBefore.top)
+          : null;
+
+        const tmp = this._presetBlocks[idx];
+        this._presetBlocks[idx] = this._presetBlocks[target];
+        this._presetBlocks[target] = tmp;
+        if (this._selectedBlockIndex === idx) this._selectedBlockIndex = target;
+        else if (this._selectedBlockIndex === target) this._selectedBlockIndex = idx;
+
+        this._savePresetBlocks();
+        this._renderPresetBlockList();
+
+        if (anchorTopBefore == null || !listEl || !anchorBlockId) {
+          return;
+        }
+
+        requestAnimationFrame(() => {
+          const nextAnchorItem = listEl.querySelector(`.preset-block-item[data-block-id="${anchorBlockId}"]`);
+          const nextListRect = listEl.getBoundingClientRect();
+          const nextAnchorRect = nextAnchorItem?.getBoundingClientRect?.() || null;
+          if (!nextAnchorRect || !nextListRect) {
+            return;
+          }
+          const anchorTopAfter = nextAnchorRect.top - nextListRect.top;
+          listEl.scrollTop += anchorTopAfter - anchorTopBefore;
+          this._pulsePresetAnchorItem(anchorBlockId);
+        });
+      }
+
+      _renderPresetBlockList() {
+        this._ensurePresetBlockIds();
+        const typeLabels = { message: '消息块', context: '主聊天', subchat: '副聊天', current_input: '当前用户输入', worldinfo: '世界书' };
+        const len = this._presetBlocks.length;
+        this._presetBlockList.innerHTML = this._presetBlocks.map((b, i) => {
+          const selected = i === this._selectedBlockIndex ? ' preset-block--selected' : '';
+          const label = b.type === 'message'
+            ? (b.name || typeLabels[b.type] || b.type)
+            : (b.type === 'worldinfo' ? (b.name || b.worldBook?.name || typeLabels[b.type] || b.type) : (typeLabels[b.type] || b.type));
+          const sub = b.type === 'subchat'
+            ? '真实Role'
+            : (b.type === 'current_input' ? '本次输入' : (b.role || 'user'));
+          const canUp = i > 0;
+          const canDown = i < len - 1;
+          return `<div class="preset-block-item${selected}" data-index="${i}" data-block-id="${this._esc(b.id || '')}">
+            <div class="preset-block-info">
+              <span class="preset-block-label">${this._esc(label)}</span>
+              <span class="preset-block-sub">${this._esc(sub)}</span>
+            </div>
+            <div class="preset-block-actions">
+              <button class="preset-block-move" data-index="${i}" data-dir="-1" ${canUp ? '' : 'disabled'}>↑</button>
+              <button class="preset-block-move" data-index="${i}" data-dir="1" ${canDown ? '' : 'disabled'}>↓</button>
+              <button class="preset-block-del" data-index="${i}">×</button>
+            </div>
+          </div>`;
+        }).join('');
+        // Bind clicks
+        this._presetBlockList.querySelectorAll('.preset-block-item').forEach(el => {
+          el.addEventListener('mouseenter', () => {
+            this._hoveredPresetBlockId = String(el.dataset.blockId || '').trim();
+          });
+          el.addEventListener('mouseleave', () => {
+            if (this._hoveredPresetBlockId === String(el.dataset.blockId || '').trim()) {
+              this._hoveredPresetBlockId = '';
+            }
+          });
+          el.addEventListener('click', (e) => {
+            if (e.target.classList.contains('preset-block-del')) {
+              const idx = parseInt(e.target.dataset.index);
+              this._presetBlocks.splice(idx, 1);
+              this._savePresetBlocks();
+              if (this._selectedBlockIndex >= this._presetBlocks.length) this._selectedBlockIndex = this._presetBlocks.length - 1;
+              if (this._selectedBlockIndex >= 0) this._selectBlock(this._selectedBlockIndex);
+              else { this._presetEditor.hidden = true; this._renderPresetBlockList(); }
+              return;
+            }
+            if (e.target.classList.contains('preset-block-move')) {
+              const idx = parseInt(e.target.dataset.index);
+              const dir = parseInt(e.target.dataset.dir);
+              this._movePresetBlockKeepingHoverAnchor(idx, dir, e);
+              return;
+            }
+            this._selectBlock(parseInt(el.dataset.index));
+          });
+        });
+      }
+
+      async _savePresetBlocks() {
+        try {
+          const db = this._db || await this._dbReady;
+          const tx = db.transaction('config', 'readwrite');
+          tx.objectStore('config').put(this._presetBlocks, 'presetBlocks');
+        } catch (e) {
+          console.warn('[TinyChat] Save preset failed', e);
+        }
+      }
+
+      async _restorePresetBlocks() {
+        try {
+          const db = await this._dbReady;
+          const tx = db.transaction('config', 'readonly');
+          const req = tx.objectStore('config').get('presetBlocks');
+          req.onsuccess = () => {
+            if (Array.isArray(req.result)) {
+              this._presetBlocks = req.result;
+              this._renderPresetBlockList();
+            }
+          };
+        } catch (e) {
+          console.warn('[TinyChat] Restore preset failed', e);
+        }
+      }
+
+      getPresetBlocks() {
+        return this._presetBlocks.slice();
+      }
+
+      _importPreset() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        input.onchange = () => {
+          const file = input.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const data = JSON.parse(reader.result);
+              if (Array.isArray(data)) {
+                this._presetBlocks = data;
+              } else if (Array.isArray(data.blocks)) {
+                this._presetBlocks = data.blocks;
+              } else {
+                throw new Error('Invalid format');
+              }
+              this._selectedBlockIndex = -1;
+              this._presetEditor.hidden = true;
+              this._presetPreview.hidden = true;
+              this._savePresetBlocks();
+              this._renderPresetBlockList();
+            } catch (e) {
+              alert('导入失败: ' + e.message);
+            }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      }
+
+      _exportPreset() {
+        if (!this._presetBlocks.length) return;
+        const json = JSON.stringify(this._presetBlocks, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tinychat-preset.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      async _buildPreviewMessages(options = {}) {
+        const messages = [];
+        for (const block of this._presetBlocks) {
+          if (block.type === 'subchat') {
+            messages.push(...this._getSecondaryChatMessages(block));
+            continue;
+          }
+
+          if (block.type === 'current_input') {
+            const content = String(arguments[0]?.currentInputText || '').trim();
+            if (content) {
+              messages.push({ role: 'user', content });
+            }
+            continue;
+          }
+
+          const role = String(block.role || '').trim();
+          if (!role) continue;
+          if (block.type === 'message') {
+            const text = String(block.text || '').trim();
+            if (text) messages.push({ role, content: text });
+          } else if (block.type === 'context') {
+            const chatContent = this._buildMainChatPreviewText();
+            if (chatContent && chatContent !== '暂无聊天记录' && chatContent !== '暂无匹配内容') {
+              messages.push({ role: role || 'system', content: chatContent });
+            }
+          } else if (block.type === 'worldinfo') {
+            const worldBookText = await this._buildWorldBookPreviewText(this._getPresetWorldBookBinding(block));
+            if (worldBookText && !['未添加世界书', '未选择世界书', '未连接酒馆，无法读取世界书', '暂无触发内容', '暂无内容'].includes(worldBookText)) {
+              messages.push({ role: role || 'system', content: worldBookText });
+            }
+          }
+        }
+        return messages;
+      }
+
+      async _buildRequestMessages(userText = '') {
+        return this._buildPreviewMessages({ currentInputText: userText });
+      }
+
+      async _showPresetPreview() {
+        this._previewMode = 'readable';
+        this._presetEditor.hidden = true;
+        this._presetPreview.hidden = false;
+        this._selectedBlockIndex = -1;
+        this._renderPresetBlockList();
+        await this._renderPreviewContent();
+        this.root.querySelector('.preset-preview-toggle').textContent = '原始JSON';
+      }
+
+      _togglePreviewMode() {
+        const btn = this.root.querySelector('.preset-preview-toggle');
+        if (this._previewMode === 'readable') {
+          this._previewMode = 'json';
+          btn.textContent = '可读文本';
+        } else {
+          this._previewMode = 'readable';
+          btn.textContent = '原始JSON';
+        }
+        this._renderPreviewContent();
+      }
+
+      async _renderPreviewContent() {
+        const messages = await this._buildPreviewMessages();
+        if (this._previewMode === 'json') {
+          const json = JSON.stringify(messages, null, 2);
+          this._presetPreviewList.innerHTML = `<pre class="preview-pre">${json.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        } else {
+          const readable = messages
+            .map(m => String(m.content || '').trim())
+            .filter(Boolean)
+            .join('\n\n');
+          this._presetPreviewList.innerHTML = `<pre class="preview-pre">${(readable || '暂无内容').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        }
+      }
+
+      _saveBlockDraft() {
+        if (this._selectedBlockIndex >= 0 && this._blockDraft) {
+          const block = this._presetBlocks[this._selectedBlockIndex];
+          const nextBlock = { ...this._blockDraft };
+          if (nextBlock.type === 'message') {
+            delete nextBlock.worldBook;
+          } else if (nextBlock.type === 'context') {
+            nextBlock.name = '';
+            delete nextBlock.worldBook;
+            nextBlock.text = this._presetTextInput.value;
+          } else if (nextBlock.type === 'subchat') {
+            nextBlock.name = '';
+            nextBlock.role = '';
+            nextBlock.subChatRangeN = this._presetSubchatRangeInput.value;
+            delete nextBlock.worldBook;
+            nextBlock.text = this._presetTextInput.value;
+          } else if (nextBlock.type === 'current_input') {
+            nextBlock.name = '';
+            nextBlock.role = '';
+            delete nextBlock.worldBook;
+            nextBlock.text = '本次发送时，会在这里注入当前用户输入';
+          } else if (nextBlock.type === 'worldinfo') {
+            const binding = this._getPresetWorldBookBinding(nextBlock);
+            nextBlock.worldBook = binding || undefined;
+            nextBlock.name = binding?.name || '';
+            nextBlock.text = this._presetTextInput.value;
+          }
+          Object.assign(block, nextBlock);
+          this._blockDraft = null;
+          this._savePresetBlocks();
+          this._renderPresetBlockList();
+        }
+      }
+
+      _discardBlockDraft() {
+        this._blockDraft = null;
+        this._presetEditor.hidden = true;
+        this._selectedBlockIndex = -1;
+        this._renderPresetBlockList();
+      }
+
+      _clearRightPage() {
+        this._presetEditor.hidden = true;
+        this._presetPreview.hidden = true;
+        this._selectedBlockIndex = -1;
+        this._blockDraft = null;
+        this._renderPresetBlockList();
+      }
+
+      // --- Main Chat Methods ---
+
+      _addXmlRule() {
+        this._mainChatConfig.xmlRules.push({ tag: '', mode: 'include', n: '' });
+        this._saveMainChatConfig();
+        this._renderXmlRules();
+      }
+
+      _deleteXmlRule(index) {
+        this._mainChatConfig.xmlRules.splice(index, 1);
+        this._saveMainChatConfig();
+        this._renderXmlRules();
+      }
+
+      _toggleRuleMode(index) {
+        const rule = this._mainChatConfig.xmlRules[index];
+        if (rule) {
+          rule.mode = rule.mode === 'exclude' ? 'include' : 'exclude';
+          this._saveMainChatConfig();
+          this._renderXmlRules();
+        }
+      }
+
+      _renderXmlRules() {
+        const rules = this._mainChatConfig.xmlRules;
+        if (!rules.length) {
+          this._mainchatRulesEl.innerHTML = '<div class="mainchat-empty">无规则，AI消息将按原文读取</div>';
+          return;
+        }
+        this._mainchatRulesEl.innerHTML = rules.map((rule, i) => `
+          <div class="mainchat-rule" data-rule-index="${i}">
+            <div class="mainchat-rule-top">
+              <div class="field mainchat-rule-tag-field">
+                <label class="api-label">标签名</label>
+                <input class="api-input mainchat-rule-tag" type="text" maxlength="24" spellcheck="false" value="${rule.tag}" placeholder="标签名" data-rule-index="${i}" />
+              </div>
+              <button class="preset-action-btn mainchat-rule-del" type="button" data-rule-index="${i}">×</button>
+            </div>
+            <div class="mainchat-rule-bottom">
+              <button class="preset-action-btn mainchat-rule-mode" type="button" data-rule-index="${i}">${rule.mode === 'exclude' ? '排除最近N楼' : '最近N楼'}</button>
+              <div class="field mainchat-rule-n-field">
+                <input class="api-input mainchat-rule-n" type="number" min="0" max="99" step="1" value="${rule.n}" placeholder="N" data-rule-index="${i}" />
+              </div>
+            </div>
+          </div>
+        `).join('');
+
+        // Bind rule events
+        this._mainchatRulesEl.querySelectorAll('.mainchat-rule-tag').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = parseInt(el.dataset.ruleIndex);
+            this._mainChatConfig.xmlRules[idx].tag = el.value;
+            this._saveMainChatConfig();
+          });
+        });
+        this._mainchatRulesEl.querySelectorAll('.mainchat-rule-n').forEach(el => {
+          el.addEventListener('input', () => {
+            const idx = parseInt(el.dataset.ruleIndex);
+            this._mainChatConfig.xmlRules[idx].n = el.value;
+            this._saveMainChatConfig();
+          });
+        });
+        this._mainchatRulesEl.querySelectorAll('.mainchat-rule-del').forEach(el => {
+          el.addEventListener('click', () => this._deleteXmlRule(parseInt(el.dataset.ruleIndex)));
+        });
+        this._mainchatRulesEl.querySelectorAll('.mainchat-rule-mode').forEach(el => {
+          el.addEventListener('click', () => this._toggleRuleMode(parseInt(el.dataset.ruleIndex)));
+        });
+      }
+
+      _saveMainChatConfig() {
+        this._mainChatConfig.contextN = this._mainchatAiN.value;
+        this._mainChatConfig.userN = this._mainchatUserN.value;
+        this._dbReady.then(db => {
+          const tx = db.transaction('config', 'readwrite');
+          tx.objectStore('config').put(this._mainChatConfig, 'mainChatConfig');
+        }).catch(e => console.warn('[TinyChat] Save mainChat failed', e));
+      }
+
+      async _restoreMainChatConfig() {
+        try {
+          const db = await this._dbReady;
+          const tx = db.transaction('config', 'readonly');
+          const req = tx.objectStore('config').get('mainChatConfig');
+          req.onsuccess = () => {
+            if (req.result) {
+              this._mainChatConfig = { contextN: '', userN: '', xmlRules: [], ...req.result };
+              this._mainchatAiN.value = this._mainChatConfig.contextN;
+              this._mainchatUserN.value = this._mainChatConfig.userN;
+              this._renderXmlRules();
+            } else {
+              this._renderXmlRules();
+            }
+          };
+        } catch (e) {
+          console.warn('[TinyChat] Restore mainChat failed', e);
+          this._renderXmlRules();
+        }
+      }
+
+      _getSillyTavernContext() {
+        const candidates = [window];
+        try {
+          if (window.opener && window.opener !== window) candidates.push(window.opener);
+        } catch (e) {}
+        try {
+          if (window.parent && window.parent !== window) candidates.push(window.parent);
+        } catch (e) {}
+        try {
+          if (window.top && window.top !== window) candidates.push(window.top);
+        } catch (e) {}
+
+        for (const candidate of candidates) {
+          try {
+            if (!candidate || !candidate.SillyTavern || typeof candidate.SillyTavern.getContext !== 'function') {
+              continue;
+            }
+            const context = candidate.SillyTavern.getContext();
+            if (context && Array.isArray(context.chat)) {
+              return context;
+            }
+          } catch (e) {}
+        }
+        return null;
+      }
+
+      _normalizeLiveChatMessageText(value) {
+        return String(value == null ? '' : value)
+          .replace(/\r\n?/g, '\n')
+          .trim();
+      }
+
+      _getLiveChatMessageRole(rawMessage) {
+        if (!rawMessage || typeof rawMessage !== 'object') return '';
+        if (rawMessage.is_user) return 'user';
+        if (rawMessage.is_system) return 'system';
+        const rawRole = String(rawMessage.role || '').trim().toLowerCase();
+        if (rawRole === 'user') return 'user';
+        if (rawRole === 'system') return 'system';
+        return 'assistant';
+      }
+
+      _readLiveChatMessagesFromContext(context = this._getSillyTavernContext()) {
+        const rawMessages = context && Array.isArray(context.chat) ? context.chat : null;
+        if (!rawMessages) return null;
+        return rawMessages.reduce((result, rawMessage) => {
+          const role = this._getLiveChatMessageRole(rawMessage);
+          if (role !== 'user' && role !== 'assistant') {
+            return result;
+          }
+          const content = this._normalizeLiveChatMessageText(rawMessage.mes ?? rawMessage.content ?? '');
+          if (!content) {
+            return result;
+          }
+          result.push({ role, content });
+          return result;
+        }, []);
+      }
+
+      _getCurrentChatPreviewMessages() {
+        const contextMessages = this._readLiveChatMessagesFromContext();
+        if (Array.isArray(contextMessages)) {
+          return contextMessages;
+        }
+        return Array.isArray(this._chatHistory) ? this._chatHistory.slice() : [];
+      }
+
+      _getSecondaryChatMessages(block = null) {
+        const history = Array.isArray(this._chatHistory) ? this._chatHistory : [];
+        const messages = history.reduce((result, message) => {
+          const role = String(message?.role || '').trim().toLowerCase();
+          const content = String(message?.content || '').trim();
+          if (!content) return result;
+          if (role === 'user' || role === 'assistant' || role === 'system') {
+            result.push({ role, content });
+          }
+          return result;
+        }, []);
+
+        const rangeStr = String(block?.subChatRangeN ?? '').trim();
+        if (rangeStr === '') return messages;
+        const rangeN = parseInt(rangeStr, 10);
+        if (!Number.isFinite(rangeN) || rangeN <= 0) return [];
+        return messages.slice(Math.max(0, messages.length - rangeN));
+      }
+
+      _buildSecondaryChatPreviewText(block = null) {
+        const lines = this._getSecondaryChatMessages(block).map(message => {
+          if (message.role === 'user') return `用户：${message.content}`;
+          if (message.role === 'assistant') return `AI：${message.content}`;
+          if (message.role === 'system') return `系统：${message.content}`;
+          return message.content;
+        }).filter(Boolean);
+        return lines.length ? lines.join('\n\n') : '暂无当前聊天内容';
+      }
+
+
+      _buildMainChatPreviewText() {
+        const config = this._mainChatConfig;
+        const history = this._getCurrentChatPreviewMessages();
+        if (!history.length) {
+          return '暂无聊天记录';
+        }
+
+        const aiMessages = history
+          .map((m, i) => ({ index: i, message: m }))
+          .filter(item => item.message.role === 'assistant');
+        const userMessages = history
+          .map((m, i) => ({ index: i, message: m }))
+          .filter(item => item.message.role === 'user');
+
+        const aiInRange = {};
+        const userInRange = {};
+        const rules = (config.xmlRules || []).filter(r => String(r.tag || '').trim());
+
+        if (rules.length) {
+          rules.forEach(rule => {
+            const nStr = String(rule.n || '').trim();
+            if (nStr === '0') return;
+            let start = 0, end = aiMessages.length;
+            if (nStr !== '') {
+              const n = parseInt(nStr, 10) || 0;
+              if (n <= 0) return;
+              if (rule.mode === 'exclude') {
+                end = Math.max(0, aiMessages.length - n);
+              } else {
+                start = Math.max(0, aiMessages.length - n);
+              }
+            }
+            for (let i = start; i < end; i++) {
+              const item = aiMessages[i];
+              if (!aiInRange[item.index]) aiInRange[item.index] = [];
+              aiInRange[item.index].push(String(rule.tag).trim());
+            }
+          });
+        } else {
+          const aiRangeStr = String(config.contextN || '').trim();
+          let start = 0, end = aiMessages.length;
+          if (aiRangeStr === '0') {
+            end = 0;
+          } else if (aiRangeStr !== '') {
+            const n = parseInt(aiRangeStr, 10) || 0;
+            start = Math.max(0, aiMessages.length - n);
+          }
+          for (let i = start; i < end; i++) {
+            aiInRange[aiMessages[i].index] = ['__full__'];
+          }
+        }
+
+        const userNStr = String(config.userN || '').trim();
+        if (userNStr !== '0') {
+          let start = 0, end = userMessages.length;
+          if (userNStr !== '') {
+            const n = parseInt(userNStr, 10) || 0;
+            if (n > 0) start = Math.max(0, userMessages.length - n);
+          }
+          for (let i = start; i < end; i++) {
+            userInRange[userMessages[i].index] = true;
+          }
+        }
+
+        const result = [];
+        for (let i = 0; i < history.length; i++) {
+          const msg = history[i];
+          if (msg.role === 'user') {
+            if (userInRange[i]) result.push(`用户：${msg.content}`);
+            continue;
+          }
+          if (!aiInRange[i]) continue;
+          const tags = aiInRange[i];
+          const parts = tags.map(tag => {
+            if (tag === '__full__') return msg.content;
+            const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'gi');
+            const matches = [];
+            let m;
+            while ((m = regex.exec(msg.content)) !== null) matches.push(m[1].trim());
+            return matches.length ? `<${tag}>\n${matches.join('\n')}\n</${tag}>` : '';
+          }).filter(Boolean);
+          if (parts.length) result.push(`AI：${parts.join('\n\n')}`);
+        }
+
+        return result.length ? result.join('\n\n') : '暂无匹配内容';
+      }
+
+      _refreshMainChatPreview() {
+        this._mainchatPreviewText.textContent = this._buildMainChatPreviewText();
+      }
+
+      _getNormalizedWorldBooks() {
+        return Array.isArray(this._worldBooks)
+          ? this._worldBooks
+              .map(wb => ({
+                name: String(wb?.name || '').trim(),
+                scope: String(wb?.scope || 'global').trim() || 'global',
+                ownerId: String(wb?.ownerId || '').trim(),
+              }))
+              .filter(wb => wb.name)
+          : [];
+      }
+
+      _getCurrentChatWorldBookCandidates() {
+        const configured = this._getNormalizedWorldBooks();
+        const preferred = configured.filter(wb => wb.scope === 'chat' || wb.scope === 'character');
+        return preferred.length ? preferred : configured;
+      }
+
+      async _fetchWorldBookByBinding(binding) {
+        const stApi = this._getSTAPI();
+        if (!stApi?.worldBook?.get || !binding?.name) {
+          return null;
+        }
+        try {
+          const result = await stApi.worldBook.get({
+            name: binding.name,
+            scope: binding.scope || undefined,
+          });
+          if (result?.worldBook) {
+            return result;
+          }
+        } catch (e) {}
+        return null;
+      }
+
+      async _readTriggeredWorldBookPayloads(bindings = this._getCurrentChatWorldBookCandidates()) {
+        if (!bindings.length) {
+          return [];
+        }
+        const results = [];
+        for (const binding of bindings) {
+          const result = await this._fetchWorldBookByBinding(binding);
+          if (result?.worldBook) {
+            results.push({ binding, result });
+          }
+        }
+        return results;
+      }
+
+      _formatWorldBookEntries(result, binding = null) {
+        const entries = Array.isArray(result?.worldBook?.entries) ? result.worldBook.entries : [];
+        const enabledEntries = entries.filter(entry => entry?.enabled !== false && String(entry?.content || '').trim());
+        if (!enabledEntries.length) {
+          return '';
+        }
+        const scopeLabel = result?.scope || binding?.scope || 'global';
+        return [
+          `世界书：${result?.worldBook?.name || binding?.name || ''}`,
+          `作用域：${scopeLabel}`,
+          ...enabledEntries.map(entry => {
+            const entryName = String(entry?.name || '').trim();
+            const entryContent = String(entry?.content || '').trim();
+            return entryName ? `${entryName}：${entryContent}` : entryContent;
+          })
+        ].filter(Boolean).join('\n');
+      }
+
+      _normalizeWorldBookEntryKeywords(values) {
+        return Array.isArray(values)
+          ? values.map(value => String(value || '').trim()).filter(Boolean)
+          : [];
+      }
+
+      _getWorldBookEntryKeywords(entry = null) {
+        return this._normalizeWorldBookEntryKeywords([
+          ...(Array.isArray(entry?.key) ? entry.key : []),
+          ...(Array.isArray(entry?.secondaryKey) ? entry.secondaryKey : []),
+        ]);
+      }
+
+      _isWorldBookEntryTriggered(entry = null, contextText = '') {
+        if (!entry || entry.enabled === false || !String(entry?.content || '').trim()) {
+          return false;
+        }
+
+        const activationMode = String(entry?.activationMode || '').trim().toLowerCase();
+        if (activationMode === 'always') {
+          return true;
+        }
+
+        const keywords = this._getWorldBookEntryKeywords(entry);
+        if (!keywords.length) {
+          return false;
+        }
+
+        const useCaseSensitive = entry?.caseSensitive === true;
+        const normalizedContext = useCaseSensitive
+          ? String(contextText || '')
+          : String(contextText || '').toLowerCase();
+
+        return keywords.some(keyword => {
+          const normalizedKeyword = useCaseSensitive ? keyword : keyword.toLowerCase();
+          return normalizedKeyword ? normalizedContext.includes(normalizedKeyword) : false;
+        });
+      }
+
+      _getWorldBookEntrySortValue(entry, field, fallbackValue) {
+        const rawValue = field === 'uid'
+          ? (entry?.uid ?? entry?.index)
+          : entry?.[field];
+        return Number.isFinite(Number(rawValue)) ? Number(rawValue) : fallbackValue;
+      }
+
+      _sortWorldBookEntriesForOutput(entries) {
+        return (Array.isArray(entries) ? entries.slice() : []).sort((left, right) => {
+          const leftOrder = this._getWorldBookEntrySortValue(left, 'order', Number.POSITIVE_INFINITY);
+          const rightOrder = this._getWorldBookEntrySortValue(right, 'order', Number.POSITIVE_INFINITY);
+          if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+
+          const leftUid = this._getWorldBookEntrySortValue(left, 'uid', Number.POSITIVE_INFINITY);
+          const rightUid = this._getWorldBookEntrySortValue(right, 'uid', Number.POSITIVE_INFINITY);
+          if (leftUid !== rightUid) {
+            return leftUid - rightUid;
+          }
+
+          const leftIndex = this._getWorldBookEntrySortValue(left, 'index', Number.POSITIVE_INFINITY);
+          const rightIndex = this._getWorldBookEntrySortValue(right, 'index', Number.POSITIVE_INFINITY);
+          return leftIndex - rightIndex;
+        });
+      }
+
+      _formatTriggeredWorldBookEntryPreviewLine(entry) {
+        const matchedEntryName = String(entry?.name || '').trim();
+        const matchedEntryContent = String(entry?.content || '').trim();
+        const orderText = Number.isFinite(Number(entry?.order)) ? String(Number(entry.order)) : '-';
+        const uidRaw = entry?.uid ?? entry?.index;
+        const uidText = Number.isFinite(Number(uidRaw)) ? String(Number(uidRaw)) : '-';
+        const prefix = `[order:${orderText} uid:${uidText}] `;
+        return matchedEntryName
+          ? `${prefix}${matchedEntryName}：${matchedEntryContent}`
+          : `${prefix}${matchedEntryContent}`;
+      }
+
+      _formatTriggeredWorldBookEntryPromptLine(entry) {
+        return String(entry?.content || '').trim();
+      }
+
+      _buildWorldBookTriggerContextText() {
+        const blocks = Array.isArray(this._presetBlocks) ? this._presetBlocks : [];
+        const contextParts = [];
+
+        for (const block of blocks) {
+          if (block?.type === 'context') {
+            const content = this._buildMainChatPreviewText();
+            if (content && content !== '暂无聊天记录' && content !== '暂无匹配内容') {
+              contextParts.push(content);
+            }
+            continue;
+          }
+
+          if (block?.type === 'subchat') {
+            const content = this._buildSecondaryChatPreviewText(block);
+            if (content && content !== '暂无当前聊天内容') {
+              contextParts.push(content);
+            }
+          }
+        }
+
+        return contextParts.filter(Boolean).join('\n\n').trim();
+      }
+
+      async _getTriggeredWorldBookEntries(binding = null) {
+        const result = await this._fetchWorldBookByBinding(binding);
+        if (!result?.worldBook) {
+          return { result: null, matchedEntries: [], contextText: '' };
+        }
+
+        const contextText = this._buildWorldBookTriggerContextText();
+        if (!contextText) {
+          return { result, matchedEntries: [], contextText: '' };
+        }
+
+        const worldBookEntries = Array.isArray(result.worldBook.entries) ? result.worldBook.entries : [];
+        const matchedEntries = this._sortWorldBookEntriesForOutput(
+          worldBookEntries.filter(entry => this._isWorldBookEntryTriggered(entry, contextText))
+        ).slice(0, 20);
+
+        return { result, matchedEntries, contextText };
+      }
+
+      _getPresetWorldBookBinding(block = this._blockDraft) {
+        if (!block || block.type !== 'worldinfo') return null;
+        const source = block.worldBook && typeof block.worldBook === 'object'
+          ? block.worldBook
+          : { name: block.name, scope: block.scope || block.worldBookScope, ownerId: block.ownerId };
+        const name = String(source?.name || '').trim();
+        if (!name) return null;
+        return {
+          name,
+          scope: String(source?.scope || 'global').trim() || 'global',
+          ownerId: String(source?.ownerId || '').trim(),
+        };
+      }
+
+      async _buildWorldBookPreviewText(binding = undefined) {
+        const hasBindingArgument = arguments.length > 0;
+        const bindings = hasBindingArgument ? (binding ? [binding] : []) : this._getNormalizedWorldBooks();
+        if (!bindings.length) return hasBindingArgument ? '未选择世界书' : '未添加世界书';
+        const stApi = this._getSTAPI();
+        if (!stApi?.worldBook?.get) return '未连接酒馆，无法读取世界书';
+
+        const chunks = [];
+        for (const itemBinding of bindings) {
+          const { result, matchedEntries, contextText } = await this._getTriggeredWorldBookEntries(itemBinding);
+          if (!result?.worldBook) {
+            continue;
+          }
+          if (!contextText || !matchedEntries.length) {
+            continue;
+          }
+          const promptLines = matchedEntries
+            .map(entry => this._formatTriggeredWorldBookEntryPromptLine(entry))
+            .filter(Boolean);
+          if (promptLines.length) {
+            chunks.push(promptLines.join('\n'));
+          }
+        }
+
+        return chunks.length ? chunks.join('\n\n') : '暂无触发内容';
+      }
+
+      async _buildWorldBookTriggeredPreviewText(binding = null) {
+        if (!binding?.name) {
+          return '未选择世界书';
+        }
+        const stApi = this._getSTAPI();
+        if (!stApi?.worldBook?.get) {
+          return '未连接酒馆，无法读取世界书';
+        }
+
+        const { result, matchedEntries, contextText } = await this._getTriggeredWorldBookEntries(binding);
+        if (!result?.worldBook) {
+          return '未找到世界书';
+        }
+        if (!contextText || !matchedEntries.length) {
+          return '暂无触发内容';
+        }
+
+        return [
+          `世界书触发：${result.worldBook.name || binding.name}`,
+          '',
+          '--- 预览（含调试信息）---',
+          ...matchedEntries.map(entry => this._formatTriggeredWorldBookEntryPreviewLine(entry)),
+          '',
+          '--- 实际注入 Prompt（纯条目内容）---',
+          ...matchedEntries.map(entry => this._formatTriggeredWorldBookEntryPromptLine(entry)).filter(Boolean),
+        ].filter(line => line !== null && line !== undefined).join('\n');
+      }
+
+      _hideWbTriggeredPreview() {
+        if (this._wbTriggeredPreview) this._wbTriggeredPreview.hidden = true;
+        if (this._wbTriggeredPreviewText) this._wbTriggeredPreviewText.textContent = '点击预览查看触发结果';
+        if (this._wbPicker) this._wbPicker.hidden = false;
+        if (this._wbTriggeredPreviewBack) this._wbTriggeredPreviewBack.dataset.backMode = 'picker';
+      }
+
+      async _showWorldBookTriggeredPreview(binding = null, backMode = 'picker') {
+        if (this._wbPicker) this._wbPicker.hidden = true;
+        if (this._wbTriggeredPreview) this._wbTriggeredPreview.hidden = false;
+        if (this._wbTriggeredPreviewText) this._wbTriggeredPreviewText.textContent = '读取中...';
+        if (this._wbTriggeredPreviewBack) this._wbTriggeredPreviewBack.dataset.backMode = backMode;
+        try {
+          const previewText = await this._buildWorldBookTriggeredPreviewText(binding);
+          if (this._wbTriggeredPreviewText) this._wbTriggeredPreviewText.textContent = previewText;
+        } catch (e) {
+          if (this._wbTriggeredPreviewText) this._wbTriggeredPreviewText.textContent = '读取失败: ' + e.message;
+        }
+      }
+
+      _renderPresetWorldinfoCards() {
+        if (!this._presetWorldinfoList) return;
+        const selected = this._getPresetWorldBookBinding(this._blockDraft);
+        const selectedKey = selected ? `${selected.name}::${selected.scope}::${selected.ownerId}` : '';
+        let worldBooks = this._getNormalizedWorldBooks();
+        if (selected && !worldBooks.some(wb => `${wb.name}::${wb.scope}::${wb.ownerId}` === selectedKey)) {
+          worldBooks = [selected, ...worldBooks];
+        }
+        if (!worldBooks.length) {
+          this._presetWorldinfoList.innerHTML = '<div class="preset-worldinfo-empty">未添加世界书</div>';
+          return;
+        }
+        this._presetWorldinfoList.innerHTML = worldBooks.map((wb) => {
+          const key = `${wb.name}::${wb.scope}::${wb.ownerId}`;
+          const isSelected = key === selectedKey;
+          return `
+            <div class="preset-worldinfo-card${isSelected ? ' is-selected' : ''}">
+              <span class="preset-worldinfo-card-name" title="${this._escapeHtml(wb.name || '未命名')}">${this._escapeHtml(wb.name || '未命名')}</span>
+              <button class="preset-action-btn preset-worldinfo-add" type="button" data-wb-name="${this._escapeHtml(wb.name)}" data-wb-scope="${this._escapeHtml(wb.scope || 'global')}" data-wb-owner-id="${this._escapeHtml(wb.ownerId || '')}">${isSelected ? '已选' : '添加'}</button>
+            </div>
+          `;
+        }).join('');
+
+        this._presetWorldinfoList.querySelectorAll('.preset-worldinfo-add').forEach(el => {
+          el.addEventListener('click', async () => {
+            if (!this._blockDraft || this._blockDraft.type !== 'worldinfo') return;
+            const binding = {
+              name: String(el.dataset.wbName || '').trim(),
+              scope: String(el.dataset.wbScope || 'global').trim() || 'global',
+              ownerId: String(el.dataset.wbOwnerId || '').trim(),
+            };
+            if (!binding.name) return;
+            this._blockDraft.worldBook = binding;
+            this._blockDraft.name = binding.name;
+            this._presetTextInput.value = await this._buildWorldBookPreviewText(binding);
+            this._renderPresetWorldinfoCards();
+          });
+        });
+      }
+
+      async _syncPresetEditorPreview() {
+        if (!this._blockDraft) return;
+        const blockType = this._blockDraft.type;
+        const isMessage = blockType === 'message';
+        const isWorldInfo = blockType === 'worldinfo';
+        const isSubChat = blockType === 'subchat';
+        const isCurrentInput = blockType === 'current_input';
+        const nameField = this.root.querySelector('.preset-field-name');
+        const roleField = this.root.querySelector('.preset-field-role');
+        if (nameField) nameField.style.display = isMessage ? '' : 'none';
+        if (roleField) {
+          roleField.style.display = '';
+          roleField.classList.toggle('is-subchat', isSubChat);
+        }
+        if (this._presetRoleControl) this._presetRoleControl.hidden = isSubChat || isCurrentInput;
+        if (this._presetSubchatControl) this._presetSubchatControl.hidden = !isSubChat;
+        if (this._presetSubchatReset) this._presetSubchatReset.hidden = !isSubChat;
+        if (isSubChat || isCurrentInput) this._presetRoleList.hidden = true;
+        if (this._presetNameInput) this._presetNameInput.value = isMessage ? (this._blockDraft.name || '') : '';
+        if (this._presetSubchatRangeInput) this._presetSubchatRangeInput.value = isSubChat ? (this._blockDraft.subChatRangeN || '') : '';
+        if (this._presetWorldinfoBox) this._presetWorldinfoBox.hidden = !isWorldInfo;
+        if (this._presetTextInput) this._presetTextInput.style.display = isWorldInfo ? 'none' : '';
+
+        if (isMessage) {
+          this._presetTextInput.readOnly = false;
+          this._presetTextInput.value = this._blockDraft.text || '';
+          this._presetTextInput.placeholder = '内容';
+          return;
+        }
+
+        this._presetTextInput.readOnly = true;
+        this._presetTextInput.placeholder = '';
+        if (blockType === 'context') {
+          this._presetTextInput.value = this._buildMainChatPreviewText();
+          return;
+        }
+        if (blockType === 'subchat') {
+          this._presetTextInput.value = this._buildSecondaryChatPreviewText(this._blockDraft);
+          return;
+        }
+        if (blockType === 'current_input') {
+          this._presetTextInput.value = '本次发送时，会在这里注入当前用户输入';
+          return;
+        }
+        if (blockType === 'worldinfo') {
+          this._presetTextInput.value = await this._buildWorldBookPreviewText(this._getPresetWorldBookBinding(this._blockDraft));
+          this._renderPresetWorldinfoCards();
+          return;
+        }
+        this._presetTextInput.value = this._blockDraft.text || '';
+      }
+
+      // --- World Book Methods ---
+
+      _renderWbCards() {
+        const worldBooks = this._getNormalizedWorldBooks();
+        if (!worldBooks.length) {
+          this._wbCardList.innerHTML = '<div class="mainchat-empty">未添加世界书</div>';
+          return;
+        }
+        this._wbCardList.innerHTML = worldBooks.map((wb, i) => `
+          <div class="wb-card" data-wb-index="${i}">
+            <span class="wb-card-name">${wb.name || '未命名'}</span>
+            <div class="wb-card-actions">
+              <button class="preset-action-btn wb-card-preview" type="button" data-wb-index="${i}">预览</button>
+              <button class="preset-action-btn wb-card-del" type="button" data-wb-index="${i}">×</button>
+            </div>
+          </div>
+        `).join('');
+
+        this._wbCardList.querySelectorAll('.wb-card-del').forEach(el => {
+          el.addEventListener('click', () => {
+            const idx = parseInt(el.dataset.wbIndex);
+            this._worldBooks.splice(idx, 1);
+            this._saveWorldBooks();
+            this._renderWbCards();
+            if (this._blockDraft?.type === 'worldinfo') this._renderPresetWorldinfoCards();
+          });
+        });
+        this._wbCardList.querySelectorAll('.wb-card-preview').forEach(el => {
+          el.addEventListener('click', async () => {
+            const idx = parseInt(el.dataset.wbIndex);
+            const binding = worldBooks[idx] || null;
+            await this._showWorldBookTriggeredPreview(binding, 'card');
+          });
+        });
+      }
+
+      _getSTAPI() {
+        const candidates = [window];
+        try {
+          if (window.opener && window.opener !== window) candidates.push(window.opener);
+        } catch (e) {}
+        try {
+          if (window.parent && window.parent !== window) candidates.push(window.parent);
+        } catch (e) {}
+        try {
+          if (window.top && window.top !== window) candidates.push(window.top);
+        } catch (e) {}
+
+        for (const candidate of candidates) {
+          try {
+            if (candidate && candidate.ST_API) return candidate.ST_API;
+          } catch (e) {}
+        }
+        return null;
+      }
+
+      _escapeHtml(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      async _openWbPicker() {
+        this._wbPicker.hidden = false;
+        this._wbPickerList.innerHTML = '<div class="mainchat-empty">加载中...</div>';
+        try {
+          const stApi = this._getSTAPI();
+          if (!stApi?.worldBook?.list) {
+            this._wbPickerList.innerHTML = '<div class="mainchat-empty">未连接酒馆，无法获取世界书</div>';
+            return;
+          }
+
+          const result = await stApi.worldBook.list();
+          const worldBooks = Array.isArray(result?.worldBooks) ? result.worldBooks : [];
+          if (!worldBooks.length) {
+            this._wbPickerList.innerHTML = '<div class="mainchat-empty">酒馆中无世界书</div>';
+            return;
+          }
+
+          this._wbPickerList.innerHTML = worldBooks.map((wb) => {
+            const safeName = this._escapeHtml(wb?.name || '');
+            const safeScope = this._escapeHtml(wb?.scope || 'global');
+            const ownerId = this._escapeHtml(wb?.ownerId || '');
+            return `
+              <div class="wb-picker-card" data-wb-name="${safeName}" data-wb-scope="${safeScope}" data-wb-owner-id="${ownerId}">
+                <span class="wb-card-name">${safeName}</span>
+                <div class="wb-card-actions">
+                  <button class="preset-action-btn wb-picker-add" type="button" data-wb-name="${safeName}" data-wb-scope="${safeScope}" data-wb-owner-id="${ownerId}">添加</button>
+                  <button class="preset-action-btn wb-picker-preview" type="button" data-wb-name="${safeName}" data-wb-scope="${safeScope}" data-wb-owner-id="${ownerId}">预览</button>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          this._wbPickerList.querySelectorAll('.wb-picker-add').forEach(el => {
+            el.addEventListener('click', () => {
+              const name = String(el.dataset.wbName || '').trim();
+              const scope = String(el.dataset.wbScope || 'global').trim() || 'global';
+              const ownerId = String(el.dataset.wbOwnerId || '').trim();
+              if (!this._worldBooks.find(w => String(w?.name || '').trim() === name && String(w?.scope || 'global').trim() === scope && String(w?.ownerId || '').trim() === ownerId)) {
+                this._worldBooks.push({ name, scope, ownerId });
+                this._saveWorldBooks();
+                this._renderWbCards();
+                if (this._blockDraft?.type === 'worldinfo') this._renderPresetWorldinfoCards();
+              }
+            });
+          });
+
+          this._wbPickerList.querySelectorAll('.wb-picker-preview').forEach(el => {
+            el.addEventListener('click', async () => {
+              const binding = {
+                name: String(el.dataset.wbName || '').trim(),
+                scope: String(el.dataset.wbScope || 'global').trim() || 'global',
+                ownerId: String(el.dataset.wbOwnerId || '').trim(),
+              };
+              await this._showWorldBookTriggeredPreview(binding, 'picker');
+            });
+          });
+        } catch (e) {
+          this._wbPickerList.innerHTML = '<div class="mainchat-empty">获取失败: ' + this._escapeHtml(e.message) + '</div>';
+        }
+      }
+
+      _saveWorldBooks() {
+        this._dbReady.then(db => {
+          const tx = db.transaction('config', 'readwrite');
+          tx.objectStore('config').put(this._worldBooks, 'worldBooks');
+        }).catch(e => console.warn('[TinyChat] Save worldBooks failed', e));
+      }
+
+      async _restoreWorldBooks() {
+        try {
+          const db = await this._dbReady;
+          const tx = db.transaction('config', 'readonly');
+          const req = tx.objectStore('config').get('worldBooks');
+          req.onsuccess = () => {
+            if (Array.isArray(req.result)) {
+              this._worldBooks = req.result;
+            }
+            this._renderWbCards();
+          };
+        } catch (e) {
+          console.warn('[TinyChat] Restore worldBooks failed', e);
+          this._renderWbCards();
+        }
+      }
+
+      // --- IndexedDB Persistence ---
+
+      _openDB() {
+        return new Promise((resolve, reject) => {
+          const req = indexedDB.open('TinyChatDB', 5);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('config')) {
+              db.createObjectStore('config');
+            }
+          };
+          req.onsuccess = () => { this._db = req.result; resolve(this._db); };
+          req.onerror = () => { console.warn('[TinyChat] IndexedDB open failed', req.error); reject(req.error); };
+        });
+      }
+
+      async _saveApiConfig() {
+        try {
+          const db = this._db || await this._dbReady;
+          const record = {
+            url: this.apiUrlInput.value.trim(),
+            key: this.apiKeyInput.value.trim(),
+            model: this.apiModelInput.value.trim(),
+            stream: this._apiConfig.stream,
+            streamMode: this._apiConfig.streamMode,
+            deepseekThinking: this._apiConfig.deepseekThinking,
+            deepseekEffort: this._apiConfig.deepseekEffort,
+            thinkingChainEnabled: this._apiConfig.thinkingChainEnabled,
+            thinkingChainTag: this._normalizeThinkingTagName(this.thinkingChainTagInput.value),
+            opponentName: String(this.charNameInput.value || '').trim(),
+            playerName: String(this.userNameInput.value || '').trim(),
+          };
+          const tx = db.transaction('config', 'readwrite');
+          tx.objectStore('config').put(record, 'apiConfig');
+        } catch (e) {
+          console.warn('[TinyChat] Save config failed', e);
+        }
+      }
+
+      async _restoreApiConfig() {
+        try {
+          const db = await this._dbReady;
+          const tx = db.transaction('config', 'readonly');
+          const req = tx.objectStore('config').get('apiConfig');
+          req.onsuccess = () => {
+            const r = req.result;
+            if (!r) return;
+            if (r.url) this.apiUrlInput.value = r.url;
+            if (r.key) this.apiKeyInput.value = r.key;
+            if (r.model) this.apiModelInput.value = r.model;
+            this._apiConfig.url = r.url || '';
+            this._apiConfig.key = r.key || '';
+            this._apiConfig.model = r.model || '';
+            // Restore stream
+            this._apiConfig.stream = !!r.stream;
+            this._apiConfig.streamMode = r.streamMode || '';
+            if (r.stream && r.streamMode) {
+              this._setLabelState(this.streamLabel, 'emerald');
+              const modeText = r.streamMode === 'realtime' ? '实时传输' : r.streamMode === 'complete' ? '完整传输' : '';
+              this.streamInput.value = modeText;
+            }
+            // Restore deepseek
+            this._apiConfig.deepseekThinking = r.deepseekThinking || '';
+            this._apiConfig.deepseekEffort = r.deepseekEffort || '';
+            this._apiConfig.thinkingChainTag = this._normalizeThinkingTagName(r.thinkingChainTag || '');
+            this._apiConfig.thinkingChainEnabled = !!this._apiConfig.thinkingChainTag;
+            this.thinkingChainTagInput.value = this._apiConfig.thinkingChainTag;
+            this.opponentName = String(r.opponentName || this.opponentName || '赫敏·格兰杰').trim() || '赫敏·格兰杰';
+            this.playerName = String(r.playerName || this.playerName || '你').trim() || '你';
+            this.charNameInput.value = this.opponentName;
+            this.userNameInput.value = this.playerName;
+            if (r.deepseekThinking) {
+              this._setLabelState(this.deepseekLabel, 'emerald');
+              this.deepseekInput.value = r.deepseekThinking === 'enabled' ? '启用' : '禁用';
+              if (r.deepseekThinking === 'enabled' && r.deepseekEffort) {
+                this.deepseekEffortInput.value = r.deepseekEffort;
+                this._setLabelState(this.deepseekEffortLabel, 'emerald');
+              }
+            }
+          };
+        } catch (e) {
+          console.warn('[TinyChat] Restore config failed', e);
+        }
+      }
+    }
+
+    (function bindTinyChatHostGestures() {
+      let rightDragging = false;
+
+      function postHostMessage(payload) {
+        try {
+          window.parent?.postMessage?.(payload, '*');
+        } catch (e) {}
+      }
+
+      window.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+      });
+
+      window.addEventListener('pointerdown', (event) => {
+        if (event.button !== 2) return;
+        rightDragging = true;
+        event.preventDefault();
+        postHostMessage({
+          type: 'tinychat.hostRightDragStart',
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      });
+
+      window.addEventListener('pointermove', (event) => {
+        if (!rightDragging) return;
+        event.preventDefault();
+        postHostMessage({
+          type: 'tinychat.hostRightDragMove',
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        });
+      });
+
+      const endRightDrag = (event) => {
+        if (!rightDragging) return;
+        rightDragging = false;
+        event?.preventDefault?.();
+        postHostMessage({
+          type: 'tinychat.hostRightDragEnd',
+          pointerId: event?.pointerId,
+        });
+      };
+
+      window.addEventListener('pointerup', endRightDrag);
+      window.addEventListener('pointercancel', endRightDrag);
+      window.addEventListener('blur', () => {
+        if (!rightDragging) return;
+        rightDragging = false;
+        postHostMessage({ type: 'tinychat.hostRightDragEnd' });
+      });
+
+      window.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey) return;
+        event.preventDefault();
+        postHostMessage({
+          type: 'tinychat.hostWheel',
+          deltaY: event.deltaY,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          ctrlKey: event.ctrlKey,
+        });
+      }, { passive: false });
+    })();
+
+
+    new TinyChat('#tiny-chat-root', {
+      opponentName: '赫敏·格兰杰',
+      playerName: '你',
+    });
+  </script>
+</body>
+</html>
