@@ -147,7 +147,7 @@
                     <div class="preset-editor-toolbar">
                       <button class="preset-toolbar-btn" type="button" data-action="save">保存</button>
                       <button class="preset-toolbar-btn" type="button" data-action="back">返回</button>
-                      <button class="preset-toolbar-btn preset-subchat-reset" type="button" hidden>重置</button>
+                      <button class="preset-toolbar-btn preset-subchat-reset" type="button" hidden>清空</button>
                     </div>
                     <div class="api-grid">
                       <div class="field field-row preset-field-type-role">
@@ -348,6 +348,7 @@
         this._chatHistory = [];
         this._dbReady = this._openDB();
         this._restoreApiConfig();
+        this._restoreChatHistory();
 
         this.sendBtn.addEventListener('click', () => this._onSend());
         this.speechInput.addEventListener('keydown', (e) => {
@@ -668,8 +669,9 @@
         });
         this._presetSubchatReset.addEventListener('click', () => {
           if (this._selectedBlockIndex >= 0 && this._blockDraft && this._blockDraft.type === 'subchat') {
-            this._blockDraft.subChatRangeN = '';
-            this._presetSubchatRangeInput.value = '';
+            this._chatHistory = [];
+            this._saveChatHistory();
+            this._restoreChatMessages();
             this._presetTextInput.value = this._buildSecondaryChatPreviewText(this._blockDraft);
           }
         });
@@ -817,31 +819,18 @@
         this._chatHistory = this._chatHistory.filter(message => String(message?.id || '').trim() !== targetId);
         this.messagesEl.querySelector(`.msg-row[data-message-id="${this._esc(targetId)}"]`)?.remove();
         this._pendingDeleteMessageId = '';
+        this._saveChatHistory();
       }
 
-      addMessage(type, who, text, meta = {}) {
-        const messageId = String(meta?.id || '').trim() || this._nextMessageId();
-        const row = document.createElement('div');
-        row.className = `msg-row ${type}-row`;
-        row.dataset.messageId = messageId;
-        const div = document.createElement('div');
-        div.className = `msg ${type}`;
-        const whoSpan = document.createElement('button');
-        whoSpan.type = 'button';
-        whoSpan.className = 'who';
-        whoSpan.textContent = who;
-        whoSpan.addEventListener('click', (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const activeId = this._pendingDeleteMessageId === messageId ? '' : messageId;
-          this._pendingDeleteMessageId = activeId;
-          this.messagesEl.querySelectorAll('.msg-row').forEach(item => {
-            item.classList.toggle('delete-armed', item.dataset.messageId === activeId);
-          });
+      _toggleDeleteArmed(messageId) {
+        const activeId = this._pendingDeleteMessageId === messageId ? '' : messageId;
+        this._pendingDeleteMessageId = activeId;
+        this.messagesEl.querySelectorAll('.msg-row').forEach(item => {
+          item.classList.toggle('delete-armed', item.dataset.messageId === activeId);
         });
-        div.appendChild(whoSpan);
-        this._appendMessageContent(div, text, { foldThinking: type === 'ai' });
+      }
 
+      _buildDeleteButton(messageId) {
         const deleteBtn = document.createElement('button');
         deleteBtn.type = 'button';
         deleteBtn.className = 'msg-delete-btn';
@@ -851,17 +840,79 @@
           event.stopPropagation();
           this._deleteChatMessage(messageId);
         });
+        return deleteBtn;
+      }
+
+      _buildWhoButton(messageId, who) {
+        const whoBtn = document.createElement('button');
+        whoBtn.type = 'button';
+        whoBtn.className = 'who';
+        whoBtn.textContent = who;
+        whoBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          this._toggleDeleteArmed(messageId);
+        });
+        return whoBtn;
+      }
+
+      addMessage(type, who, text, meta = {}) {
+        const messageId = String(meta?.id || '').trim() || this._nextMessageId();
+        const row = document.createElement('div');
+        row.className = `msg-row ${type}-row`;
+        row.dataset.messageId = messageId;
+        const div = document.createElement('div');
+        div.className = `msg ${type}`;
+        const header = document.createElement('div');
+        header.className = 'msg-header';
+        const whoSpan = this._buildWhoButton(messageId, who);
+        const deleteBtn = this._buildDeleteButton(messageId);
+        const body = document.createElement('div');
+        body.className = 'msg-body';
 
         if (type === 'player') {
-          div.appendChild(deleteBtn);
+          header.appendChild(deleteBtn);
+          header.appendChild(whoSpan);
         } else if (type === 'ai') {
-          div.insertBefore(deleteBtn, div.firstChild);
+          header.appendChild(whoSpan);
+          header.appendChild(deleteBtn);
+        } else {
+          header.appendChild(whoSpan);
         }
 
+        div.appendChild(header);
+        div.appendChild(body);
+        this._appendMessageContent(body, text, { foldThinking: type === 'ai' });
         row.appendChild(div);
         this.messagesEl.appendChild(row);
         this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
         return messageId;
+      }
+
+      async _saveChatHistory() {
+        try {
+          const db = this._db || await this._dbReady;
+          const tx = db.transaction('config', 'readwrite');
+          tx.objectStore('config').put(this._chatHistory, 'chatHistory');
+        } catch (e) {
+          console.warn('[TinyChat] Save chatHistory failed', e);
+        }
+      }
+
+      async _restoreChatHistory() {
+        try {
+          const db = await this._dbReady;
+          const tx = db.transaction('config', 'readonly');
+          const req = tx.objectStore('config').get('chatHistory');
+          req.onsuccess = () => {
+            this._chatHistory = Array.isArray(req.result) ? req.result : [];
+            this._restoreChatMessages();
+          };
+        } catch (e) {
+          console.warn('[TinyChat] Restore chatHistory failed', e);
+          this._chatHistory = [];
+          this._restoreChatMessages();
+        }
       }
 
       _restoreChatMessages() {
@@ -894,15 +945,22 @@
 
       async _onSend() {
         const text = (this.speechInput.innerText || '').replace(/\u00A0/g, ' ').replace(/[\r\n]+/g, ' ').trim();
-        if (!text) return;
-        const userMessageId = this._nextMessageId();
-        this.addMessage('player', this.playerName, text, { id: userMessageId });
-        this.speechInput.textContent = '';
+        const requestMessages = await this._buildRequestMessages(text);
+        if (!text && !requestMessages.length) return;
+
+        let userMessageId = '';
+        if (text) {
+          userMessageId = this._nextMessageId();
+          this.addMessage('player', this.playerName, text, { id: userMessageId });
+          this.speechInput.textContent = '';
+        }
         this.sendBtn.classList.add('sending');
         this.sendBtn.disabled = true;
 
-        const requestMessages = await this._buildRequestMessages(text);
-        this._chatHistory.push({ id: userMessageId, role: 'user', content: text });
+        if (text) {
+          this._chatHistory.push({ id: userMessageId, role: 'user', content: text });
+          this._saveChatHistory();
+        }
 
         try {
           const { url, key, model, stream, streamMode, deepseekThinking, deepseekEffort } = this._apiConfig;
@@ -917,6 +975,7 @@
                 this.addMessage('ai', this.opponentName, line, { id: aiMessageId });
                 this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: line });
               });
+              this._saveChatHistory();
             }
           } else {
             // Real API call
@@ -965,31 +1024,13 @@
               row.dataset.messageId = aiMessageId;
               const div = document.createElement('div');
               div.className = 'msg ai';
-              const deleteBtn = document.createElement('button');
-              deleteBtn.type = 'button';
-              deleteBtn.className = 'msg-delete-btn';
-              deleteBtn.setAttribute('aria-label', '删除消息');
-              deleteBtn.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                this._deleteChatMessage(aiMessageId);
-              });
-              const whoBtn = document.createElement('button');
-              whoBtn.type = 'button';
-              whoBtn.className = 'who';
-              whoBtn.textContent = this.opponentName;
-              whoBtn.addEventListener('click', (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                const activeId = this._pendingDeleteMessageId === aiMessageId ? '' : aiMessageId;
-                this._pendingDeleteMessageId = activeId;
-                this.messagesEl.querySelectorAll('.msg-row').forEach(item => {
-                  item.classList.toggle('delete-armed', item.dataset.messageId === activeId);
-                });
-              });
-              const contentSpan = document.createElement('span');
-              div.appendChild(deleteBtn);
-              div.appendChild(whoBtn);
+              const header = document.createElement('div');
+              header.className = 'msg-header';
+              header.appendChild(this._buildWhoButton(aiMessageId, this.opponentName));
+              header.appendChild(this._buildDeleteButton(aiMessageId));
+              const contentSpan = document.createElement('div');
+              contentSpan.className = 'msg-body';
+              div.appendChild(header);
               div.appendChild(contentSpan);
               row.appendChild(div);
               this.messagesEl.appendChild(row);
@@ -1016,6 +1057,7 @@
               contentSpan.replaceChildren();
               this._appendMessageContent(contentSpan, fullText, { foldThinking: true });
               this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: fullText });
+              this._saveChatHistory();
             } else {
               // Non-stream or complete mode
               const data = await resp.json();
@@ -1023,6 +1065,7 @@
               const aiMessageId = this._nextMessageId();
               this.addMessage('ai', this.opponentName, reply, { id: aiMessageId });
               this._chatHistory.push({ id: aiMessageId, role: 'assistant', content: reply });
+              this._saveChatHistory();
             }
           }
         } catch (err) {

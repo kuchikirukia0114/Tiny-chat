@@ -127,7 +127,7 @@
   display: block;
   font-family: "ZiYu-QuGuaiTi", "KaiTi";
   font-size: 13px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
   color: #6a4d42;
   font-weight: 400;
   border: 0;
@@ -141,11 +141,35 @@
   position: relative;
 }
 
+#tiny-chat-root .msg-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+#tiny-chat-root .msg.player .msg-header {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+#tiny-chat-root .msg-body {
+  display: block;
+}
+
+#tiny-chat-root .msg.player .msg-body {
+  text-align: right;
+}
+
+#tiny-chat-root .msg.ai .msg-body {
+  text-align: left;
+}
+
 #tiny-chat-root .msg-delete-btn {
-  position: absolute;
-  top: 0;
-  width: 22px;
-  height: 22px;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
   border: 0;
   background: transparent url("../assets/svg/skull.svg") center / contain no-repeat;
   opacity: 0;
@@ -153,15 +177,6 @@
   cursor: pointer;
   transition: opacity 140ms ease, transform 140ms ease;
 }
-
-#tiny-chat-root .msg.player .msg-delete-btn {
-  left: -26px;
-}
-
-#tiny-chat-root .msg.ai .msg-delete-btn {
-  right: -26px;
-}
-
 #tiny-chat-root .msg-row.delete-armed .msg-delete-btn {
   opacity: .9;
   pointer-events: auto;
